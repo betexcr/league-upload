@@ -1,3 +1,5 @@
 **/node_modules
 **/dist
 apps/api/.local-storage
+infra/localstack/.terraform
+infra/localstack/.terraform.lock.hcl
