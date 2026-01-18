@@ -1,0 +1,9 @@
+version: "3.8"
+
+services:
+  clamav:
+    image: clamav/clamav:stable
+    ports:
+      - "3310:3310"
+    environment:
+      - CLAMAV_NO_FRESHCLAM=false

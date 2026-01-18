@@ -11,6 +11,7 @@ export type DocumentRef = {
   id: string;
   latestVersionId: string | null;
   ownerId: string;
+  ownerEmail?: string;
   status: 'ACTIVE' | 'SIGNED';
   title: string;
   categories: string[];
@@ -31,10 +32,13 @@ export type DocumentRef = {
 
 type DocumentListFilters = {
   ownerId?: string;
+  ownerEmail?: string;
   linkType?: 'CLAIM' | 'PROFILE' | 'DEPENDENT' | 'PLAN_YEAR';
   linkId?: string;
   category?: string;
   q?: string;
+  status?: 'ACTIVE' | 'SIGNED';
+  deleted?: 'only' | 'include' | 'exclude';
   cursor?: string;
   limit?: number;
 };
@@ -48,11 +52,34 @@ export class DocumentsService {
   ) {}
 
   async listDocuments(filters: DocumentListFilters, user: RequestUser) {
-    const baseWhere: any = { deletedAt: null };
+    const deletedFilter = filters.deleted ?? 'exclude';
+    if (deletedFilter !== 'exclude' && user.role === Role.MEMBER) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    const baseWhere: any = {};
+    if (deletedFilter === 'exclude') {
+      baseWhere.deletedAt = null;
+    } else if (deletedFilter === 'only') {
+      baseWhere.deletedAt = { not: null };
+    }
     const andConditions: any[] = [];
 
     if (filters.category) {
       andConditions.push({ categories: { has: filters.category } });
+    }
+
+    if (filters.ownerEmail) {
+      if (user.role === Role.MEMBER) {
+        throw new ForbiddenException('Access denied');
+      }
+      andConditions.push({
+        owner: { email: { contains: filters.ownerEmail, mode: 'insensitive' } }
+      });
+    }
+
+    if (filters.status) {
+      andConditions.push({ status: filters.status });
     }
 
     if (filters.linkType && filters.linkId) {
@@ -107,7 +134,8 @@ export class DocumentsService {
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: limit,
         include: {
-          entityLinks: true
+          entityLinks: true,
+          owner: { select: { email: true } }
         }
       });
 
@@ -148,7 +176,7 @@ export class DocumentsService {
   async getDocument(id: string, user: RequestUser) {
     const document = await this.prisma.document.findUnique({
       where: { id },
-      include: { entityLinks: true }
+      include: { entityLinks: true, owner: { select: { email: true } } }
     });
 
     if (!document) {
@@ -194,7 +222,7 @@ export class DocumentsService {
         notes: payload.notes ?? undefined,
         docDate: payload.docDate ? new Date(payload.docDate) : undefined
       },
-      include: { entityLinks: true }
+      include: { entityLinks: true, owner: { select: { email: true } } }
     });
 
     await this.audit.log('document.update', user.id, id, meta);
@@ -236,19 +264,27 @@ export class DocumentsService {
   }
 
   async restore(id: string, user: RequestUser, meta?: RequestMeta) {
-    const document = await this.prisma.document.findUnique({ where: { id }, include: { entityLinks: true } });
+    const document = await this.prisma.document.findUnique({
+      where: { id },
+      include: { entityLinks: true, owner: { select: { email: true } } }
+    });
     if (!document) {
       throw new NotFoundException('Document not found');
     }
 
-    if (!this.canEdit(document, user)) {
+    if (user.role === Role.AGENT) {
+      const canView = await this.canView(document.id, document.ownerId, user);
+      if (!canView) {
+        throw new ForbiddenException('Access denied');
+      }
+    } else if (!this.canEdit(document, user)) {
       throw new ForbiddenException('Access denied');
     }
 
     const updated = await this.prisma.document.update({
       where: { id },
       data: { deletedAt: null, deletedById: null },
-      include: { entityLinks: true }
+      include: { entityLinks: true, owner: { select: { email: true } } }
     });
 
     await this.audit.log('document.restore', user.id, id, meta);
@@ -259,7 +295,7 @@ export class DocumentsService {
   async markSigned(id: string, user: RequestUser, meta?: RequestMeta) {
     const document = await this.prisma.document.findUnique({
       where: { id },
-      include: { entityLinks: true }
+      include: { entityLinks: true, owner: { select: { email: true } } }
     });
     if (!document) {
       throw new NotFoundException('Document not found');
@@ -289,7 +325,7 @@ export class DocumentsService {
         signedAt: new Date(),
         signedById: user.id
       },
-      include: { entityLinks: true }
+      include: { entityLinks: true, owner: { select: { email: true } } }
     });
 
     await this.audit.log('document.signed', user.id, id, meta);
@@ -299,7 +335,10 @@ export class DocumentsService {
   }
 
   async setAnnotations(id: string, annotations: any[], user: RequestUser, meta?: RequestMeta) {
-    const document = await this.prisma.document.findUnique({ where: { id }, include: { entityLinks: true } });
+    const document = await this.prisma.document.findUnique({
+      where: { id },
+      include: { entityLinks: true, owner: { select: { email: true } } }
+    });
     if (!document) {
       throw new NotFoundException('Document not found');
     }
@@ -312,7 +351,7 @@ export class DocumentsService {
     const updated = await this.prisma.document.update({
       where: { id },
       data: { annotations },
-      include: { entityLinks: true }
+      include: { entityLinks: true, owner: { select: { email: true } } }
     });
 
     await this.audit.log('document.annotations', user.id, id, meta);
@@ -336,6 +375,7 @@ export class DocumentsService {
       latestVersionId: document.latestVersionId ?? null,
       ownerId: document.ownerId,
       status: document.status ?? 'ACTIVE',
+      ownerEmail: document.owner?.email,
       title: document.title,
       categories: document.categories,
       tags: document.tags,
@@ -514,14 +554,20 @@ export class DocumentsService {
     return Boolean(link);
   }
 
-  private canEdit(document: { ownerId: string }, user: RequestUser) {
+  private canEdit(document: { ownerId: string; status?: 'ACTIVE' | 'SIGNED' }, user: RequestUser) {
     if (user.role === Role.ADMIN) {
       return true;
     }
-    return user.role === Role.MEMBER && document.ownerId === user.id;
+    if (user.role === Role.MEMBER) {
+      return document.ownerId === user.id && document.status !== 'SIGNED';
+    }
+    return false;
   }
 
-  private canDelete(document: { ownerId: string; legalHold?: boolean }, user: RequestUser) {
+  private canDelete(
+    document: { ownerId: string; legalHold?: boolean; status?: 'ACTIVE' | 'SIGNED' },
+    user: RequestUser
+  ) {
     if (document.legalHold) {
       return false;
     }
@@ -531,6 +577,9 @@ export class DocumentsService {
     if (user.role === Role.AGENT) {
       return true;
     }
-    return user.role === Role.MEMBER && document.ownerId === user.id;
+    if (user.role === Role.MEMBER) {
+      return document.ownerId === user.id && document.status !== 'SIGNED';
+    }
+    return false;
   }
 }

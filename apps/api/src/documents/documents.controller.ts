@@ -43,20 +43,26 @@ export class DocumentsController {
   async listDocuments(
     @CurrentUser() user: RequestUser,
     @Query('ownerId') ownerId?: string,
+    @Query('ownerEmail') ownerEmail?: string,
     @Query('linkType') linkType?: 'CLAIM' | 'PROFILE' | 'DEPENDENT' | 'PLAN_YEAR',
     @Query('linkId') linkId?: string,
     @Query('category') category?: string,
     @Query('q') q?: string,
+    @Query('status') status?: 'ACTIVE' | 'SIGNED',
+    @Query('deleted') deleted?: 'only' | 'include' | 'exclude',
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string
   ) {
     return this.documents.listDocuments(
       {
         ownerId,
+        ownerEmail,
         linkType,
         linkId,
         category,
         q,
+        status,
+        deleted,
         cursor,
         limit: limit ? Number(limit) : undefined
       },

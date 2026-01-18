@@ -44,7 +44,7 @@ const smallButtonClass = css({
   borderStyle: "solid",
   borderColor: "border",
   borderRadius: "full",
-  padding: "1 5",
+  padding: "2 6",
   background: "highlight",
   fontSize: "xs",
   cursor: "pointer",
@@ -105,8 +105,12 @@ export const App: React.FC = () => {
   const [selectedPreviewUrl, setSelectedPreviewUrl] = React.useState<
     string | null
   >(null);
+  const [watermarkText, setWatermarkText] = React.useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = React.useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = React.useState(false);
+  const [isImagePreviewOpen, setIsImagePreviewOpen] = React.useState(false);
+  const [imagePreviewUrl, setImagePreviewUrl] = React.useState<string | null>(null);
+  const [largePreviewMimeType, setLargePreviewMimeType] = React.useState<string | null>(null);
   const [metadata, setMetadata] = React.useState<Metadata>({
     title: "2024-02 Prescription",
     categories: ["PRESCRIPTION"],
@@ -116,11 +120,23 @@ export const App: React.FC = () => {
     notes: "Member uploaded from mobile.",
   });
   const [hasUploadSelection, setHasUploadSelection] = React.useState(false);
+  const [phiConsent, setPhiConsent] = React.useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return sessionStorage.getItem("phiConsent") === "true";
+  });
+  const [phiConsentError, setPhiConsentError] = React.useState(false);
   const [failUploads, setFailUploads] = React.useState(false);
   const [failDocuments, setFailDocuments] = React.useState(false);
   const failUploadsRef = React.useRef(failUploads);
   const [viewMode, setViewMode] = React.useState<"grid" | "list">("grid");
   const [search, setSearch] = React.useState("");
+  const [debouncedSearch, setDebouncedSearch] = React.useState("");
+  const [ownerFilter, setOwnerFilter] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState<
+    "ALL" | "ACTIVE" | "SIGNED" | "DELETED"
+  >("ALL");
   const [showShortcuts, setShowShortcuts] = React.useState(false);
   const searchRef = React.useRef<HTMLInputElement | null>(null);
   const [isUploadOpen, setIsUploadOpen] = React.useState(false);
@@ -382,6 +398,21 @@ export const App: React.FC = () => {
     };
   }, [uploadClient, syncPendingUploads]);
 
+  React.useEffect(() => {
+    if (authUser?.role === "AGENT") {
+      setStatusFilter("ACTIVE");
+    } else {
+      setStatusFilter("ALL");
+    }
+  }, [authUser?.role]);
+
+  React.useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setDebouncedSearch(search.trim());
+    }, 350);
+    return () => window.clearTimeout(handle);
+  }, [search]);
+
   const selectedMetadata = React.useMemo(() => {
     if (!selected) {
       return null;
@@ -417,12 +448,182 @@ export const App: React.FC = () => {
     return (await response.json()) as DocumentRef;
   };
 
+  const snapshotDocumentsQueries = React.useCallback(() => {
+    return queryClient
+      .getQueryCache()
+      .findAll({ queryKey: ["documents", "demo"] })
+      .map((query) => ({
+        key: query.queryKey,
+        data: query.state.data,
+      }));
+  }, [queryClient]);
+
+  const restoreDocumentsSnapshot = React.useCallback(
+    (snapshot: Array<{ key: readonly unknown[]; data: unknown }>) => {
+      snapshot.forEach(({ key, data }) => {
+        queryClient.setQueryData(key, data);
+      });
+    },
+    [queryClient]
+  );
+
+  const updateDocumentsQueryCaches = React.useCallback(
+    (
+      updater: (
+        data: {
+          pages: Array<{ items: DocumentRef[]; nextCursor?: string }>;
+          pageParams: unknown[];
+        },
+        key: readonly unknown[]
+      ) => {
+        pages: Array<{ items: DocumentRef[]; nextCursor?: string }>;
+        pageParams: unknown[];
+      }
+    ) => {
+      const queries = queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ["documents", "demo"] });
+      queries.forEach((query) => {
+        const data = query.state.data as
+          | { pages: Array<{ items: DocumentRef[]; nextCursor?: string }>; pageParams: unknown[] }
+          | undefined;
+        if (!data) {
+          return;
+        }
+        const next = updater(data, query.queryKey as readonly unknown[]);
+        if (next !== data) {
+          queryClient.setQueryData(query.queryKey, next);
+        }
+      });
+    },
+    [queryClient]
+  );
+
+  const mapDocumentsInPages = React.useCallback(
+    (
+      data: {
+        pages: Array<{ items: DocumentRef[]; nextCursor?: string }>;
+        pageParams: unknown[];
+      },
+      updater: (doc: DocumentRef) => DocumentRef | null
+    ) => {
+      let changed = false;
+      const pages = data.pages.map((page) => {
+        let itemsChanged = false;
+        const nextItems = page.items.reduce<DocumentRef[]>((acc, doc) => {
+          const updated = updater(doc);
+          if (updated === null) {
+            changed = true;
+            itemsChanged = true;
+            return acc;
+          }
+          if (updated !== doc) {
+            changed = true;
+            itemsChanged = true;
+            acc.push(updated);
+            return acc;
+          }
+          acc.push(doc);
+          return acc;
+        }, []);
+        return itemsChanged ? { ...page, items: nextItems } : page;
+      });
+      return changed ? { ...data, pages } : data;
+    },
+    []
+  );
+
+  const isDeletedQueryKey = React.useCallback((key: readonly unknown[]) => {
+    const status = key[key.length - 1];
+    return status === "DELETED";
+  }, []);
+
+  const matchesDocumentsQuery = React.useCallback(
+    (doc: DocumentRef, key: readonly unknown[]) => {
+      const searchValue = String(key[2] ?? "").trim().toLowerCase();
+      if (searchValue) {
+        const titleMatch = doc.title?.toLowerCase().includes(searchValue);
+        const tagMatch = (doc.tags ?? []).some((tag) =>
+          tag.toLowerCase().includes(searchValue)
+        );
+        if (!titleMatch && !tagMatch) {
+          return false;
+        }
+      }
+
+      const ownerValue = String(key[3] ?? "").trim().toLowerCase();
+      if (ownerValue) {
+        const ownerEmail = (doc.ownerEmail ?? "").toLowerCase();
+        if (!ownerEmail.includes(ownerValue)) {
+          return false;
+        }
+      }
+
+      const statusValue = String(key[key.length - 1] ?? "ALL");
+      if (statusValue === "DELETED") {
+        return Boolean(doc.deletedAt);
+      }
+      if (doc.deletedAt) {
+        return false;
+      }
+      if (statusValue !== "ALL") {
+        return doc.status === statusValue;
+      }
+      return true;
+    },
+    []
+  );
+
+  const insertDocumentIntoQueries = React.useCallback(
+    (doc: DocumentRef) => {
+      const queries = queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ["documents", "demo"] });
+      queries.forEach((query) => {
+        const data = query.state.data as
+          | {
+              pages: Array<{ items: DocumentRef[]; nextCursor?: string }>;
+              pageParams: unknown[];
+            }
+          | undefined;
+        if (!data) {
+          return;
+        }
+        const key = query.queryKey as readonly unknown[];
+        if (!matchesDocumentsQuery(doc, key)) {
+          return;
+        }
+        const alreadyPresent = data.pages.some((page) =>
+          page.items.some((item) => item.id === doc.id)
+        );
+        if (alreadyPresent) {
+          return;
+        }
+        const pages = [...data.pages];
+        if (!pages.length) {
+          pages.push({ items: [doc] });
+        } else {
+          const [first, ...rest] = pages;
+          const nextItems = [doc, ...first.items].slice(0, 12);
+          pages[0] = { ...first, items: nextItems };
+          pages.splice(1, rest.length, ...rest);
+        }
+        queryClient.setQueryData(query.queryKey, { ...data, pages });
+      });
+    },
+    [matchesDocumentsQuery, queryClient]
+  );
+
   const removeUploadEvent = React.useCallback((id: string) => {
     setUploadEvents((prev) => prev.filter((event) => event.id !== id));
   }, []);
 
   const retryUploadEvent = React.useCallback(
     async (id: string) => {
+      if (!phiConsent) {
+        setPhiConsentError(true);
+        return;
+      }
       const handle = uploadClient.listQueue().find((item) => item.id === id);
       if (!handle) {
         return;
@@ -430,40 +631,140 @@ export const App: React.FC = () => {
       handle.retry();
       await uploadClient.startQueued();
     },
-    [uploadClient]
+    [phiConsent, uploadClient]
   );
 
   const deleteDocument = React.useCallback(
     async (doc: DocumentRef) => {
-      const response = await apiFetch(`/documents/${doc.id}`, {
-        method: "DELETE",
+      if (!window.confirm(`Delete "${doc.title}"? This can be restored later.`)) {
+        return;
+      }
+      const snapshot = snapshotDocumentsQueries();
+      const deletedAt = new Date().toISOString();
+      updateDocumentsQueryCaches((data, key) => {
+        const showDeletedForKey = isDeletedQueryKey(key);
+        return mapDocumentsInPages(data, (item) => {
+          if (item.id !== doc.id) {
+            return item;
+          }
+          const updated = { ...item, deletedAt };
+          return showDeletedForKey ? updated : null;
+        });
       });
-      if (!response.ok) {
-        throw new Error("Failed to delete document");
-      }
       if (selected?.id === doc.id) {
-        setSelected(null);
+        setSelected((prev) => (prev ? { ...prev, deletedAt } : prev));
       }
-      await queryClient.invalidateQueries({ queryKey: ["documents", "demo"] });
+      try {
+        const response = await apiFetch(`/documents/${doc.id}`, {
+          method: "DELETE",
+        });
+        if (!response.ok) {
+          throw new Error("Failed to delete document");
+        }
+        await queryClient.invalidateQueries({ queryKey: ["documents", "demo"] });
+      } catch (error) {
+        restoreDocumentsSnapshot(snapshot);
+        throw error;
+      }
     },
-    [queryClient, selected]
+    [
+      mapDocumentsInPages,
+      queryClient,
+      restoreDocumentsSnapshot,
+      selected,
+      snapshotDocumentsQueries,
+      updateDocumentsQueryCaches,
+    ]
   );
 
   const markDocumentSigned = React.useCallback(
     async (doc: DocumentRef) => {
-      const response = await apiFetch(`/documents/${doc.id}/signed`, {
-        method: "POST",
-      });
-      if (!response.ok) {
-        throw new Error("Failed to mark document signed");
+      if (!window.confirm(`Mark "${doc.title}" as signed?`)) {
+        return;
       }
-      const updated = (await response.json()) as DocumentRef;
+      const snapshot = snapshotDocumentsQueries();
+      updateDocumentsQueryCaches((data) =>
+        mapDocumentsInPages(data, (item) =>
+          item.id === doc.id ? { ...item, status: "SIGNED" } : item
+        )
+      );
       if (selected?.id === doc.id) {
-        setSelected(updated);
+        setSelected((prev) => (prev ? { ...prev, status: "SIGNED" } : prev));
       }
-      await queryClient.invalidateQueries({ queryKey: ["documents", "demo"] });
+      try {
+        const response = await apiFetch(`/documents/${doc.id}/signed`, {
+          method: "POST",
+        });
+        if (!response.ok) {
+          throw new Error("Failed to mark document signed");
+        }
+        const updated = (await response.json()) as DocumentRef;
+        if (selected?.id === doc.id) {
+          setSelected(updated);
+        }
+        await queryClient.invalidateQueries({ queryKey: ["documents", "demo"] });
+      } catch (error) {
+        restoreDocumentsSnapshot(snapshot);
+        throw error;
+      }
     },
-    [queryClient, selected]
+    [
+      mapDocumentsInPages,
+      queryClient,
+      restoreDocumentsSnapshot,
+      selected,
+      snapshotDocumentsQueries,
+      updateDocumentsQueryCaches,
+    ]
+  );
+
+  const restoreDocument = React.useCallback(
+    async (doc: DocumentRef) => {
+      const snapshot = snapshotDocumentsQueries();
+      updateDocumentsQueryCaches((data, key) => {
+        const showDeletedForKey = isDeletedQueryKey(key);
+        return mapDocumentsInPages(data, (item) => {
+          if (item.id !== doc.id) {
+            return item;
+          }
+          if (showDeletedForKey) {
+            return null;
+          }
+          return { ...item, deletedAt: null };
+        });
+      });
+      if (selected?.id === doc.id) {
+        setSelected((prev) => (prev ? { ...prev, deletedAt: null } : prev));
+      }
+      const restoredDoc = { ...doc, deletedAt: null };
+      insertDocumentIntoQueries(restoredDoc);
+      try {
+        const response = await apiFetch(`/documents/${doc.id}/restore`, {
+          method: "POST",
+        });
+        if (!response.ok) {
+          throw new Error("Failed to restore document");
+        }
+        const updated = (await response.json()) as DocumentRef;
+        if (selected?.id === doc.id) {
+          setSelected(updated);
+        }
+        await queryClient.invalidateQueries({ queryKey: ["documents", "demo"] });
+      } catch (error) {
+        restoreDocumentsSnapshot(snapshot);
+        throw error;
+      }
+    },
+    [
+      insertDocumentIntoQueries,
+      isDeletedQueryKey,
+      mapDocumentsInPages,
+      queryClient,
+      restoreDocumentsSnapshot,
+      selected,
+      snapshotDocumentsQueries,
+      updateDocumentsQueryCaches,
+    ]
   );
 
   const upsertUploadEvent = React.useCallback(
@@ -583,6 +884,7 @@ export const App: React.FC = () => {
       setSelectedPreviewUrl(null);
       setPreviewLoading(false);
       setIsPreviewOpen(false);
+      setWatermarkText(null);
       return;
     }
     let active = true;
@@ -592,8 +894,9 @@ export const App: React.FC = () => {
     setPreviewLoading(true);
     const loadPreview = async () => {
       try {
+        const watermarkParam = authUser?.role === "AGENT" ? "on" : "off";
         const response = await apiFetch(
-          `/documents/${selected.id}/preview-url?watermark=on`
+          `/documents/${selected.id}/preview-url?watermark=${watermarkParam}`
         );
         if (!response.ok) {
           throw new Error("Failed to fetch preview URL");
@@ -612,11 +915,19 @@ export const App: React.FC = () => {
         }
       }
     };
+    if (authUser?.role === "AGENT") {
+      const timestamp = new Date().toLocaleString("en-US", { hour12: false });
+      setWatermarkText(
+        `For Review - ${authUser.email ?? "agent"} - ${timestamp}`
+      );
+    } else {
+      setWatermarkText(null);
+    }
     void loadPreview();
     return () => {
       active = false;
     };
-  }, [selected]);
+  }, [authUser?.email, authUser?.role, selected]);
 
   const hydratePreviewUrls = React.useCallback(
     async (items: DocumentRef[]) => {
@@ -651,6 +962,12 @@ export const App: React.FC = () => {
     },
     []
   );
+
+  const openLargePreview = React.useCallback((url: string, mimeType?: string) => {
+    setImagePreviewUrl(url);
+    setLargePreviewMimeType(mimeType ?? null);
+    setIsImagePreviewOpen(true);
+  }, []);
 
   if (!authToken) {
     return (
@@ -752,7 +1069,7 @@ export const App: React.FC = () => {
                   borderWidth: "thin",
                   borderStyle: "solid",
                   borderColor: "border",
-                  padding: "1 3",
+                  padding: "2 7",
                   fontSize: "xs",
                   background: "highlight",
                   cursor: "pointer",
@@ -763,19 +1080,6 @@ export const App: React.FC = () => {
               </button>
             </div>
           </div>
-          <p
-            className={css({
-              textTransform: "uppercase",
-              letterSpacing: "0.18em",
-              fontSize: "xs",
-              fontWeight: "600",
-              color: "accent",
-              margin: 0,
-              marginBottom: "3",
-            })}
-          >
-            League Upload Management
-          </p>
           <h1
             className={css({
               fontSize: "hero",
@@ -804,7 +1108,7 @@ export const App: React.FC = () => {
               borderWidth: "thin",
               borderStyle: "solid",
               borderColor: "border",
-              padding: "2 5",
+              padding: "2 7",
               fontSize: "xs",
               background: "highlight",
               cursor: "pointer",
@@ -813,21 +1117,22 @@ export const App: React.FC = () => {
           >
             Keyboard shortcuts
           </button>
-          <details
-            open={isUploadOpen}
-            onToggle={(event) =>
-              setIsUploadOpen((event.target as HTMLDetailsElement).open)
-            }
-            className={css({
-              background: "surface",
-              borderWidth: "thin",
-              borderStyle: "solid",
-              borderColor: "border",
-              borderRadius: "xl",
-              padding: "5",
-              boxShadow: "card",
-            })}
-          >
+          {authUser?.role === "USER" ? (
+            <details
+              open={isUploadOpen}
+              onToggle={(event) =>
+                setIsUploadOpen((event.target as HTMLDetailsElement).open)
+              }
+              className={css({
+                background: "surface",
+                borderWidth: "thin",
+                borderStyle: "solid",
+                borderColor: "border",
+                borderRadius: "xl",
+                padding: "5",
+                boxShadow: "card",
+              })}
+            >
             <summary
               className={css({
                 listStyle: "none",
@@ -851,7 +1156,7 @@ export const App: React.FC = () => {
                   borderWidth: "thin",
                   borderStyle: "solid",
                   borderColor: "border",
-                  padding: "1 5",
+                  padding: "2 7",
                   fontSize: "xs",
                   background: "highlight",
                 })}
@@ -860,6 +1165,47 @@ export const App: React.FC = () => {
               </span>
             </summary>
             <div className={css({ marginTop: "2", display: "grid", gap: "4" })}>
+              <div
+                className={css({
+                  display: "grid",
+                  gap: "2",
+                  borderRadius: "lg",
+                  borderWidth: "thin",
+                  borderStyle: "solid",
+                  borderColor: phiConsentError ? "errorBorder" : "border",
+                  padding: "3 4",
+                  background: "surfaceAlt",
+                })}
+              >
+                <p className={css({ margin: 0, fontSize: "sm" })}>
+                  PHI notice: Uploads may contain protected health information.
+                  Only upload documents you are authorized to share.
+                </p>
+                {!phiConsent ? (
+                  <div className={css({ display: "flex", gap: "2", flexWrap: "wrap" })}>
+                    <button
+                      type="button"
+                      className={smallButtonClass}
+                      onClick={() => {
+                        setPhiConsent(true);
+                        setPhiConsentError(false);
+                        sessionStorage.setItem("phiConsent", "true");
+                      }}
+                    >
+                      I understand and consent
+                    </button>
+                    {phiConsentError ? (
+                      <span className={css({ fontSize: "xs", color: "errorText" })}>
+                        Consent required before uploading.
+                      </span>
+                    ) : null}
+                  </div>
+                ) : (
+                  <span className={css({ fontSize: "xs", color: "muted" })}>
+                    Consent recorded for this session.
+                  </span>
+                )}
+              </div>
               <UploaderWidget
                 maxSizeMB={200}
                 maxFiles={50}
@@ -1020,7 +1366,13 @@ export const App: React.FC = () => {
                         fontWeight: "600",
                         cursor: "pointer",
                       })}
-                      onClick={() => uploadClient.retryAll()}
+                      onClick={() => {
+                        if (!phiConsent) {
+                          setPhiConsentError(true);
+                          return;
+                        }
+                        uploadClient.retryAll();
+                      }}
                     >
                       Retry all failed
                     </button>
@@ -1044,6 +1396,10 @@ export const App: React.FC = () => {
                     justifySelf: "start",
                   })}
                   onClick={async () => {
+                    if (!phiConsent) {
+                      setPhiConsentError(true);
+                      return;
+                    }
                     await uploadClient.startQueued();
                   }}
                 >
@@ -1051,7 +1407,8 @@ export const App: React.FC = () => {
                 </button>
               ) : null}
             </div>
-          </details>
+            </details>
+          ) : null}
         </div>
       </header>
       <main
@@ -1085,41 +1442,15 @@ export const App: React.FC = () => {
             })}
           >
             <h2 className={css({ margin: 0 })}>Documents</h2>
-            <div className={css({ display: "flex", gap: "2", flexWrap: "wrap" })}>
-              <span
-                className={css({
-                  borderRadius: "full",
-                  borderWidth: "thin",
-                  borderStyle: "solid",
-                  borderColor: "border",
-                  padding: "1 5",
-                  fontSize: "xs",
-                  background:
-                    restoreState.status === "failed" ? "errorBg" : "highlight",
-                })}
-                role="status"
-              >
-                Queue: {restoreState.status}
-                {restoreState.status === "restored"
-                  ? ` (${restoreState.count})`
-                  : ""}
-              </span>
-              <span
-                className={css({
-                  borderRadius: "full",
-                  borderWidth: "thin",
-                  borderStyle: "solid",
-                  borderColor: "border",
-                  padding: "1 5",
-                  fontSize: "xs",
-                  background: "highlight",
-                })}
-              >
-                {uploadEvents.length
-                  ? `Last upload: ${uploadEvents[0].id} ${uploadEvents[0].status}`
-                  : "No uploads yet"}
-              </span>
-            </div>
+            <span className={visuallyHidden} role="status" aria-live="polite">
+              Queue: {restoreState.status}
+              {restoreState.status === "restored"
+                ? ` (${restoreState.count})`
+                : ""}
+              {uploadEvents.length
+                ? ` Last upload: ${uploadEvents[0].id} ${uploadEvents[0].status}`
+                : " No uploads yet"}
+            </span>
           </div>
           <div className={css({ display: "grid", gap: "4" })}>
             <div className={css({ display: "flex", gap: "2", flexWrap: "wrap" })}>
@@ -1134,14 +1465,68 @@ export const App: React.FC = () => {
                   borderStyle: "solid",
                   borderColor: "border",
                   borderRadius: "sm",
-                  padding: "2 5",
+                  padding: "3 7",
                   fontSize: "sm",
                   minWidth: "searchMin",
                 })}
                 placeholder="Search by title or tag"
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => {
+                  if (event.target.value.length > 120) {
+                    return;
+                  }
+                  setSearch(event.target.value);
+                }}
               />
+              {authUser?.role === "AGENT" ? (
+                <>
+                  <label className={visuallyHidden} htmlFor="doc-owner-filter">
+                    Filter by uploader
+                  </label>
+                  <input
+                    id="doc-owner-filter"
+                    className={css({
+                      borderWidth: "thin",
+                      borderStyle: "solid",
+                      borderColor: "border",
+                      borderRadius: "sm",
+                      padding: "3 7",
+                      fontSize: "sm",
+                      minWidth: "searchMin",
+                    })}
+                    placeholder="Filter by uploader email"
+                    value={ownerFilter}
+                    onChange={(event) => setOwnerFilter(event.target.value)}
+                  />
+                </>
+              ) : null}
+              <label className={visuallyHidden} htmlFor="doc-status-filter">
+                Filter by status
+              </label>
+              <select
+                id="doc-status-filter"
+                className={css({
+                  borderWidth: "thin",
+                  borderStyle: "solid",
+                  borderColor: "border",
+                  borderRadius: "sm",
+                  padding: "3 7",
+                  fontSize: "sm",
+                })}
+                value={statusFilter}
+                onChange={(event) =>
+                  setStatusFilter(
+                    event.target.value as "ALL" | "ACTIVE" | "SIGNED" | "DELETED"
+                  )
+                }
+              >
+                <option value="ALL">All statuses</option>
+                <option value="ACTIVE">Active</option>
+                <option value="SIGNED">Signed</option>
+                {authUser?.role === "AGENT" ? (
+                  <option value="DELETED">Deleted</option>
+                ) : null}
+              </select>
               <div className={css({ display: "flex", gap: "2" })}>
                 <button
                   className={css({
@@ -1149,7 +1534,7 @@ export const App: React.FC = () => {
                     borderStyle: "solid",
                     borderColor: "border",
                     borderRadius: "full",
-                    padding: "2 5",
+                    padding: "2 7",
                     fontSize: "xs",
                     background: viewMode === "grid" ? "highlight" : "transparent",
                   })}
@@ -1165,7 +1550,7 @@ export const App: React.FC = () => {
                     borderStyle: "solid",
                     borderColor: "border",
                     borderRadius: "full",
-                    padding: "2 5",
+                    padding: "2 7",
                     fontSize: "xs",
                     background: viewMode === "list" ? "highlight" : "transparent",
                   })}
@@ -1177,6 +1562,7 @@ export const App: React.FC = () => {
                 </button>
               </div>
             </div>
+          {authUser?.role === "USER" ? (
             <div className={css({ display: "flex", gap: "3", flexWrap: "wrap" })}>
               <label className={css({ fontSize: "xs", color: "muted" })}>
                 <input
@@ -1195,6 +1581,7 @@ export const App: React.FC = () => {
                 Simulate upload failure
               </label>
             </div>
+          ) : null}
           </div>
           <div
             className={css({
@@ -1207,16 +1594,24 @@ export const App: React.FC = () => {
             <div className={css({ display: "grid", gap: "4" })}>
               <DocumentGalleryQuery
                 query={{
-                  queryKey: ["documents", "demo", search],
+                  queryKey: ["documents", "demo", debouncedSearch, ownerFilter, statusFilter],
                   queryFn: async ({ pageParam }) => {
                     const params = new URLSearchParams();
                     if (pageParam) {
                       params.set("cursor", String(pageParam));
                     }
-                    if (search) {
-                      params.set("q", search);
+                    if (debouncedSearch) {
+                      params.set("q", debouncedSearch);
                     }
-                    params.set("limit", "6");
+                    if (authUser?.role === "AGENT" && ownerFilter.trim()) {
+                      params.set("ownerEmail", ownerFilter.trim());
+                    }
+                    if (authUser?.role === "AGENT" && statusFilter === "DELETED") {
+                      params.set("deleted", "only");
+                    } else if (statusFilter !== "ALL") {
+                      params.set("status", statusFilter);
+                    }
+                    params.set("limit", "12");
                     const response = await apiFetch(`/documents?${params.toString()}`, {
                       headers: {
                         "x-fail-documents": failDocuments ? "1" : "0",
@@ -1232,6 +1627,8 @@ export const App: React.FC = () => {
                     const items = await hydratePreviewUrls(payload.items);
                     return { ...payload, items };
                   },
+                  getNextPageParam: (last) =>
+                    last.nextCursor ? last.nextCursor : undefined,
                 }}
                 onOpen={(doc) => {
                   setSelected(doc);
@@ -1241,6 +1638,10 @@ export const App: React.FC = () => {
                 onMarkSigned={
                   authUser?.role === "AGENT" ? markDocumentSigned : undefined
                 }
+                onRestore={
+                  authUser?.role === "AGENT" ? restoreDocument : undefined
+                }
+                showOwner={authUser?.role === "AGENT"}
                 view={viewMode}
               />
             </div>
@@ -1271,9 +1672,11 @@ export const App: React.FC = () => {
               padding: "5",
               width: "100%",
               maxWidth: "modalWidth",
+              maxHeight: "85vh",
               boxShadow: "card",
               display: "grid",
               gap: "3",
+              overflowY: "auto",
             })}
             role="dialog"
             aria-modal="true"
@@ -1291,7 +1694,7 @@ export const App: React.FC = () => {
                   borderStyle: "solid",
                   borderColor: "border",
                   borderRadius: "full",
-                  padding: "1 3",
+                  padding: "2 6",
                   background: "highlight",
                   cursor: "pointer",
                   fontSize: "xs",
@@ -1368,11 +1771,13 @@ export const App: React.FC = () => {
                   ...selected,
                   previewUrl: selectedPreviewUrl ?? undefined,
                 }}
-                showWatermark
-                watermarkText="For Review - agent_42"
+                showWatermark={authUser?.role === "AGENT"}
+                watermarkText={watermarkText ?? undefined}
+                showOwner={authUser?.role === "AGENT"}
+                onPreviewClick={(url, mimeType) => openLargePreview(url, mimeType)}
               />
             )}
-            {selectedMetadata ? (
+            {selectedMetadata && selected.acl?.canEdit ? (
               <MetadataForm
                 value={selectedMetadata}
                 allowEntityLinkEdit={false}
@@ -1385,6 +1790,98 @@ export const App: React.FC = () => {
                 }}
               />
             ) : null}
+          </div>
+        </div>
+      ) : null}
+      {isImagePreviewOpen && imagePreviewUrl ? (
+        <div
+          className={css({
+            position: "fixed",
+            inset: 0,
+            background: "overlay",
+            display: "grid",
+            placeItems: "center",
+            padding: "6",
+            zIndex: 1300,
+          })}
+          role="presentation"
+          onClick={() => setIsImagePreviewOpen(false)}
+        >
+          <div
+            className={css({
+              background: "surface",
+              borderWidth: "thin",
+              borderStyle: "solid",
+              borderColor: "border",
+              borderRadius: "xl",
+              padding: "4",
+              maxWidth: "90vw",
+              maxHeight: "90vh",
+              boxShadow: "card",
+              display: "grid",
+              gap: "3",
+            })}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Image preview"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className={css({ display: "flex", justifyContent: "flex-end" })}>
+              <button
+                type="button"
+                className={css({
+                  borderWidth: "thin",
+                  borderStyle: "solid",
+                  borderColor: "border",
+                  borderRadius: "full",
+                  padding: "2 6",
+                  background: "highlight",
+                  cursor: "pointer",
+                  fontSize: "xs",
+                })}
+                onClick={() => setIsImagePreviewOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <div
+              className={css({
+                maxHeight: "80vh",
+                overflow: "auto",
+              })}
+            >
+              {largePreviewMimeType?.includes("pdf") ? (
+                <object
+                  data={imagePreviewUrl}
+                  type="application/pdf"
+                  aria-label="Large PDF preview"
+                  className={css({
+                    display: "block",
+                    width: "95vw",
+                    height: "90vh",
+                    borderRadius: "lg",
+                    background: "highlight",
+                    borderWidth: "thin",
+                    borderStyle: "solid",
+                    borderColor: "border",
+                  })}
+                >
+                  <p>PDF preview unavailable.</p>
+                </object>
+              ) : (
+                <img
+                  src={imagePreviewUrl}
+                  alt="Large preview"
+                  className={css({
+                    display: "block",
+                    maxWidth: "100%",
+                    maxHeight: "80vh",
+                    margin: "0 auto",
+                    borderRadius: "lg",
+                  })}
+                />
+              )}
+            </div>
           </div>
         </div>
       ) : null}

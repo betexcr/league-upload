@@ -7,6 +7,8 @@ import * as jwksClient from 'jwks-rsa';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
+  private readonly authMode = process.env.AUTH_MODE ?? 'local';
+  private readonly cognitoEnabled = process.env.AUTH_FEATURE_COGNITO === 'true';
   private readonly jwksUrl = process.env.COGNITO_JWKS_URL;
   private readonly jwks =
     this.jwksUrl && this.jwksUrl.length > 0
@@ -29,7 +31,11 @@ export class JwtAuthGuard implements CanActivate {
     const token = auth.slice('bearer '.length).trim();
 
     try {
-      const payload = (this.jwks
+      const useCognito = this.authMode === 'cognito' && this.cognitoEnabled && this.jwks;
+      if (this.authMode === 'cognito' && !useCognito) {
+        throw new UnauthorizedException('Cognito auth is disabled');
+      }
+      const payload = (useCognito
         ? await this.verifyWithJwks(token)
         : this.verifyWithStaticKey(token)) as RequestUser & { email?: string; role?: Role };
       if (!payload?.id || !payload?.role || !payload?.email) {

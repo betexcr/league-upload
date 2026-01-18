@@ -21,7 +21,7 @@ provider "aws" {
   endpoints {
     s3          = var.localstack_endpoint
     sqs         = var.localstack_endpoint
-    cognito-idp = var.localstack_endpoint
+    cognitoidp  = var.localstack_endpoint
   }
 }
 

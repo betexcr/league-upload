@@ -28,6 +28,7 @@ export type DocumentRef = {
   id: string;
   latestVersionId: string | null;
   ownerId: string;
+  ownerEmail?: string;
   status: "ACTIVE" | "SIGNED";
   categories: z.infer<typeof DocCategory>[];
   title: string;

@@ -29,6 +29,9 @@ export class DocumentRefDto {
   @ApiProperty()
   ownerId!: string;
 
+  @ApiProperty({ required: false })
+  ownerEmail?: string;
+
   @ApiProperty({ enum: ['ACTIVE', 'SIGNED'] })
   status!: 'ACTIVE' | 'SIGNED';
 

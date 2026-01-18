@@ -2,10 +2,15 @@ import { Injectable } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { SqsService } from '../storage/sqs.service';
 import { ScanService } from './scan.service';
+import { ScanEngineService } from './scan-engine.service';
 
 @Injectable()
 export class ScanWorkerService {
-  constructor(private readonly sqs: SqsService, private readonly scan: ScanService) {}
+  constructor(
+    private readonly sqs: SqsService,
+    private readonly scan: ScanService,
+    private readonly engine: ScanEngineService
+  ) {}
 
   @Interval(5000)
   async pollQueue() {
@@ -21,14 +26,14 @@ export class ScanWorkerService {
       try {
         const body = JSON.parse(message.Body) as {
           uploadId: string;
-          result?: 'CLEAN' | 'BLOCKED';
-          reason?: string;
+          versionId?: string;
         };
 
+        const scanResult = await this.engine.scanVersion(body.versionId ?? body.uploadId);
         await this.scan.handleCallback({
           uploadId: body.uploadId,
-          result: body.result ?? 'CLEAN',
-          reason: body.reason
+          result: scanResult.result,
+          reason: scanResult.reason
         });
 
         await this.sqs.deleteMessage(message.ReceiptHandle);

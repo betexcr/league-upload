@@ -10,6 +10,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID, createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import { Readable } from 'stream';
 import { resolveLocalStoragePath } from './local-storage.util';
 
 export type PresignedPart = { partNumber: number; url: string };
@@ -144,6 +145,27 @@ export class S3Service {
       Key: objectKey
     });
     return getSignedUrl(this.client, command, { expiresIn: ttlSeconds });
+  }
+
+  async getObjectBuffer(objectKey: string) {
+    if (this.localStorage) {
+      const localPath = this.resolveLocalPath(objectKey);
+      return fs.readFile(localPath);
+    }
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: objectKey
+    });
+    const response = await this.client.send(command);
+    const body = response.Body;
+    if (!body || typeof (body as Readable).on !== 'function') {
+      throw new Error('Missing object body');
+    }
+    const chunks: Buffer[] = [];
+    for await (const chunk of body as Readable) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
   }
 
   private resolveLocalPath(objectKey: string) {

@@ -338,7 +338,7 @@ export const UploaderWidget: React.FC<UploaderWidgetProps> = ({
             <span
               className={css({
                 borderRadius: "full",
-                padding: "1 2",
+                padding: "2 4",
                 borderWidth: "thin",
                 borderStyle: "solid",
                 borderColor: "border",
@@ -349,7 +349,7 @@ export const UploaderWidget: React.FC<UploaderWidgetProps> = ({
             <span
               className={css({
                 borderRadius: "full",
-                padding: "1 2",
+                padding: "2 4",
                 borderWidth: "thin",
                 borderStyle: "solid",
                 borderColor: "border",
@@ -360,7 +360,7 @@ export const UploaderWidget: React.FC<UploaderWidgetProps> = ({
             <span
               className={css({
                 borderRadius: "full",
-                padding: "1 2",
+                padding: "2 4",
                 borderWidth: "thin",
                 borderStyle: "solid",
                 borderColor: "border",
@@ -378,7 +378,7 @@ export const UploaderWidget: React.FC<UploaderWidgetProps> = ({
               borderWidth: "thin",
               borderStyle: "solid",
               borderColor: "border",
-              padding: "2 5",
+              padding: "2 6",
               background: "accent",
               color: "surface",
               fontSize: "xs",
@@ -444,7 +444,7 @@ export const UploaderWidget: React.FC<UploaderWidgetProps> = ({
                 borderWidth: "thin",
                 borderStyle: "solid",
                 borderColor: "border",
-                padding: "1 2",
+                padding: "2 4",
                 fontSize: "xs",
                 background: "highlight",
               })}
@@ -632,7 +632,7 @@ const inputClass = css({
   borderStyle: "solid",
   borderColor: "border",
   borderRadius: "sm",
-  padding: "2 5",
+  padding: "3 6",
   bg: "surfaceAlt",
   fontSize: "sm",
 });
@@ -658,7 +658,7 @@ const buttonClass = css({
   borderStyle: "solid",
   borderColor: "border",
   borderRadius: "full",
-  padding: "2 5",
+  padding: "2 6",
   background: "accent",
   color: "surface",
   fontSize: "xs",
@@ -796,6 +796,8 @@ export type DocumentGalleryProps = {
   onOpen?: (doc: DocumentRef) => void;
   onDelete?: (doc: DocumentRef) => void;
   onMarkSigned?: (doc: DocumentRef) => void;
+  onRestore?: (doc: DocumentRef) => void;
+  showOwner?: boolean;
   view?: "grid" | "list";
 };
 
@@ -815,6 +817,8 @@ export const DocumentGallery: React.FC<DocumentGalleryProps> = ({
   onOpen,
   onDelete,
   onMarkSigned,
+  onRestore,
+  showOwner = false,
   view = "grid",
 }) => {
   const isGrid = view === "grid";
@@ -848,8 +852,10 @@ export const DocumentGallery: React.FC<DocumentGalleryProps> = ({
             gap: "2",
             gridTemplateColumns: isGrid ? "1fr" : "var(--sizes-thumb) 1fr",
             alignItems: "start",
+            cursor: onOpen ? "pointer" : "default",
           })}
           role="listitem"
+          onClick={() => onOpen?.(doc)}
         >
           <div
             className={css({
@@ -900,17 +906,26 @@ export const DocumentGallery: React.FC<DocumentGalleryProps> = ({
                   borderWidth: "thin",
                   borderStyle: "solid",
                   borderColor: "border",
-                  padding: "1 2",
+                  padding: "2 4",
                   fontSize: "xs",
-                  background: doc.status === "SIGNED" ? "successBg" : "highlight",
+                  background: doc.deletedAt
+                    ? "warningBg"
+                    : doc.status === "SIGNED"
+                    ? "successBg"
+                    : "highlight",
                 })}
               >
-                {doc.status ?? "ACTIVE"}
+                {doc.deletedAt ? "DELETED" : doc.status ?? "ACTIVE"}
               </span>
             </div>
             <p className={css({ margin: "1 0", fontSize: "xs", color: "muted" })}>
               {doc.mimeType}
             </p>
+            {showOwner && doc.ownerEmail ? (
+              <p className={css({ margin: "1 0", fontSize: "xs" })}>
+                Uploaded by: {doc.ownerEmail}
+              </p>
+            ) : null}
             {doc.categories?.length ? (
               <p className={css({ margin: "1 0", fontSize: "xs" })}>
                 Category: {doc.categories.join(", ")}
@@ -941,24 +956,45 @@ export const DocumentGallery: React.FC<DocumentGalleryProps> = ({
               <button
                 className={buttonClass}
                 type="button"
-                onClick={() => onOpen?.(doc)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onOpen?.(doc);
+                }}
               >
                 Open
               </button>
-              {doc.acl?.canDelete && onDelete ? (
+              {doc.deletedAt && onRestore ? (
                 <button
                   className={buttonClass}
                   type="button"
-                  onClick={() => onDelete(doc)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onRestore(doc);
+                  }}
+                >
+                  Restore
+                </button>
+              ) : null}
+              {!doc.deletedAt && doc.acl?.canDelete && onDelete ? (
+                <button
+                  className={buttonClass}
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDelete(doc);
+                  }}
                 >
                   Delete
                 </button>
               ) : null}
-              {doc.status !== "SIGNED" && onMarkSigned ? (
+              {!doc.deletedAt && doc.status !== "SIGNED" && onMarkSigned ? (
                 <button
                   className={buttonClass}
                   type="button"
-                  onClick={() => onMarkSigned(doc)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onMarkSigned(doc);
+                  }}
                 >
                   Mark signed
                 </button>
@@ -1002,6 +1038,8 @@ export type DocumentGalleryQueryProps = {
   onOpen?: (doc: DocumentRef) => void;
   onDelete?: (doc: DocumentRef) => void;
   onMarkSigned?: (doc: DocumentRef) => void;
+  onRestore?: (doc: DocumentRef) => void;
+  showOwner?: boolean;
   view?: "grid" | "list";
 };
 
@@ -1010,14 +1048,18 @@ export const DocumentGalleryQuery: React.FC<DocumentGalleryQueryProps> = ({
   onOpen,
   onDelete,
   onMarkSigned,
+  onRestore,
+  showOwner = false,
   view,
 }) => {
   const { data, isLoading, isError, fetchNextPage, hasNextPage, isFetching } =
     useDocumentsQuery(query);
   const loaderRef = React.useRef<HTMLDivElement | null>(null);
+  const lastCursor = data?.pages[data.pages.length - 1]?.nextCursor;
+  const hasMore = Boolean(lastCursor);
 
   React.useEffect(() => {
-    if (!loaderRef.current || !hasNextPage) {
+    if (!loaderRef.current || !hasNextPage || !hasMore || isFetching) {
       return;
     }
     const observer = new IntersectionObserver((entries) => {
@@ -1027,7 +1069,7 @@ export const DocumentGalleryQuery: React.FC<DocumentGalleryQueryProps> = ({
     });
     observer.observe(loaderRef.current);
     return () => observer.disconnect();
-  }, [fetchNextPage, hasNextPage]);
+  }, [fetchNextPage, hasMore, hasNextPage, isFetching]);
 
   if (isLoading) {
     return <DocumentGallerySkeleton view={view} count={2} />;
@@ -1046,11 +1088,13 @@ export const DocumentGalleryQuery: React.FC<DocumentGalleryQueryProps> = ({
         onOpen={onOpen}
         onDelete={onDelete}
         onMarkSigned={onMarkSigned}
+        onRestore={onRestore}
+        showOwner={showOwner}
         view={view}
       />
       {isFetching ? <DocumentGallerySkeleton view={view} count={2} /> : null}
-      <div ref={loaderRef} />
-      {hasNextPage ? (
+      {hasMore ? <div ref={loaderRef} /> : null}
+      {hasMore ? (
         <button className={buttonClass} type="button" onClick={() => void fetchNextPage()}>
           {isFetching ? "Loading..." : "Load more"}
         </button>
@@ -1157,13 +1201,18 @@ export type DocumentViewerProps = {
   document: DocumentRef;
   showWatermark?: boolean;
   watermarkText?: string;
+  showOwner?: boolean;
+  onPreviewClick?: (url: string, mimeType?: string) => void;
 };
 
 export const DocumentViewer: React.FC<DocumentViewerProps> = ({
   document,
   showWatermark,
   watermarkText,
+  showOwner = false,
+  onPreviewClick,
 }) => {
+  const shouldShowWatermark = Boolean(showWatermark && watermarkText && document.previewUrl);
   return (
     <section
       className={css({
@@ -1176,31 +1225,117 @@ export const DocumentViewer: React.FC<DocumentViewerProps> = ({
         {showWatermark ? (
           <p>{watermarkText ?? "For Review"}</p>
         ) : null}
+        {showOwner && document.ownerEmail ? (
+          <p>Uploaded by: {document.ownerEmail}</p>
+        ) : null}
       </header>
       <div>
         {document.previewUrl && document.mimeType.startsWith("image") ? (
-          <img
-            src={document.previewUrl}
-            alt={document.title}
-            className={css({ width: "100%", borderRadius: "md" })}
-          />
-        ) : document.previewUrl && document.mimeType.includes("pdf") ? (
-          <object
-            data={document.previewUrl}
-            type="application/pdf"
-            aria-label={`${document.title} PDF preview`}
+          <div
             className={css({
-              width: "100%",
-              height: "viewerHeight",
+              position: "relative",
               borderRadius: "md",
-              background: "highlight",
-              borderWidth: "thin",
-              borderStyle: "solid",
-              borderColor: "border",
+              overflow: "hidden",
             })}
           >
-            <p>PDF preview unavailable.</p>
-          </object>
+            <img
+              src={document.previewUrl}
+              alt={document.title}
+              className={css({
+                width: "100%",
+                borderRadius: "md",
+                cursor: onPreviewClick ? "zoom-in" : "default",
+                display: "block",
+              })}
+              onClick={() =>
+                document.previewUrl
+                  ? onPreviewClick?.(document.previewUrl, document.mimeType)
+                  : null
+              }
+            />
+            {shouldShowWatermark ? (
+              <div
+                className={css({
+                  position: "absolute",
+                  inset: 0,
+                  display: "grid",
+                  placeItems: "center",
+                  pointerEvents: "none",
+                })}
+              >
+                <span
+                  className={css({
+                    fontSize: "lg",
+                    fontWeight: "600",
+                    color: "accent",
+                    opacity: 0.2,
+                    transform: "rotate(-18deg)",
+                    textAlign: "center",
+                    padding: "3",
+                  })}
+                >
+                  {watermarkText}
+                </span>
+              </div>
+            ) : null}
+          </div>
+        ) : document.previewUrl && document.mimeType.includes("pdf") ? (
+          <div
+            className={css({
+              position: "relative",
+              width: "100%",
+              borderRadius: "md",
+              cursor: onPreviewClick ? "zoom-in" : "default",
+            })}
+            onClick={() =>
+              document.previewUrl
+                ? onPreviewClick?.(document.previewUrl, document.mimeType)
+                : null
+            }
+          >
+            <object
+              data={document.previewUrl}
+              type="application/pdf"
+              aria-label={`${document.title} PDF preview`}
+              className={css({
+                width: "100%",
+                height: "viewerHeight",
+                borderRadius: "md",
+                background: "highlight",
+                borderWidth: "thin",
+                borderStyle: "solid",
+                borderColor: "border",
+                pointerEvents: "none",
+              })}
+            >
+              <p>PDF preview unavailable.</p>
+            </object>
+            {shouldShowWatermark ? (
+              <div
+                className={css({
+                  position: "absolute",
+                  inset: 0,
+                  display: "grid",
+                  placeItems: "center",
+                  pointerEvents: "none",
+                })}
+              >
+                <span
+                  className={css({
+                    fontSize: "lg",
+                    fontWeight: "600",
+                    color: "accent",
+                    opacity: 0.2,
+                    transform: "rotate(-18deg)",
+                    textAlign: "center",
+                    padding: "3",
+                  })}
+                >
+                  {watermarkText}
+                </span>
+              </div>
+            ) : null}
+          </div>
         ) : (
           <p>Preview URL: {document.previewUrl ?? "Not available"}</p>
         )}

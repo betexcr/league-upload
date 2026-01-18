@@ -10,6 +10,7 @@
     "@league/types": "0.1.0"
   },
   "scripts": {
-    "build": "tsc -b"
+    "build": "tsc -b",
+    "test": "vitest run"
   }
 }

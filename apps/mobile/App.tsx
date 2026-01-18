@@ -1,6 +1,7 @@
 import * as React from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Image,
   Linking,
@@ -155,13 +156,25 @@ const AppShell: React.FC = () => {
   } | null>(null);
   const [authError, setAuthError] = React.useState<string | null>(null);
   const [search, setSearch] = React.useState("");
+  const [debouncedSearch, setDebouncedSearch] = React.useState("");
+  const [ownerFilter, setOwnerFilter] = React.useState("");
+  const [statusFilter, setStatusFilter] = React.useState<
+    "ALL" | "ACTIVE" | "SIGNED" | "DELETED"
+  >("ALL");
   const [selected, setSelected] = React.useState<DocumentRef | null>(null);
   const [selectedPreviewUrl, setSelectedPreviewUrl] = React.useState<string | null>(
     null
   );
   const [previewLoading, setPreviewLoading] = React.useState(false);
+  const [watermarkText, setWatermarkText] = React.useState<string | null>(null);
   const [uploadEvents, setUploadEvents] = React.useState<
-    Array<{ id: string; status: string; error?: string; name?: string }>
+    Array<{
+      id: string;
+      status: string;
+      error?: string;
+      name?: string;
+      progress?: { sent: number; total: number };
+    }>
   >([]);
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const [queueHandles, setQueueHandles] = React.useState<UploadHandle[]>([]);
@@ -189,6 +202,8 @@ const AppShell: React.FC = () => {
   const [editTagsInput, setEditTagsInput] = React.useState("");
   const [editDocDateInput, setEditDocDateInput] = React.useState("");
   const [editNotes, setEditNotes] = React.useState("");
+  const [phiConsent, setPhiConsent] = React.useState(false);
+  const [phiConsentError, setPhiConsentError] = React.useState(false);
 
   const handleLogout = React.useCallback(async () => {
     authTokenRef.current = null;
@@ -196,7 +211,9 @@ const AppShell: React.FC = () => {
     setAuthUser(null);
     setSelected(null);
     setSelectedPreviewUrl(null);
+    setWatermarkText(null);
     await AsyncStorage.removeItem(TOKEN_KEY);
+    await AsyncStorage.removeItem("league_user");
     await queryClient.clear();
   }, [queryClient]);
 
@@ -226,10 +243,23 @@ const AppShell: React.FC = () => {
   React.useEffect(() => {
     void (async () => {
       const token = await AsyncStorage.getItem(TOKEN_KEY);
+      const storedUser = await AsyncStorage.getItem("league_user");
       authTokenRef.current = token;
       setAuthToken(token);
+      if (storedUser) {
+        try {
+          setAuthUser(JSON.parse(storedUser) as { email: string; role: "USER" | "AGENT" });
+        } catch {
+          setAuthUser(null);
+        }
+      }
     })();
   }, []);
+
+  React.useEffect(() => {
+    const handle = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => clearTimeout(handle);
+  }, [search]);
 
   React.useEffect(() => {
     let active = true;
@@ -257,19 +287,23 @@ const AppShell: React.FC = () => {
   React.useEffect(() => {
     const recordEvent = (status: string, handle: UploadHandle) => {
       setUploadEvents((prev) => {
-        const latest = prev[0];
-        if (latest && latest.id === handle.id && latest.status === status) {
-          return prev;
-        }
-        return [
-          {
-            id: handle.id,
-            status,
-            error: handle.error,
-            name: handle.init.file.name,
+        const existingIndex = prev.findIndex((event) => event.id === handle.id);
+        const nextEvent = {
+          id: handle.id,
+          status,
+          error: handle.error,
+          name: handle.init.file.name,
+          progress: {
+            sent: handle.progress.bytesSent,
+            total: handle.progress.totalBytes,
           },
-          ...prev,
-        ].slice(0, 6);
+        };
+        if (existingIndex === -1) {
+          return [nextEvent, ...prev].slice(0, 6);
+        }
+        const next = [...prev];
+        next[existingIndex] = nextEvent;
+        return next;
       });
     };
     const bumpQueue = () => setQueueTick((tick) => tick + 1);
@@ -280,7 +314,7 @@ const AppShell: React.FC = () => {
     const unsubCompleted = uploadClient.on("completed", (handle) => {
       recordEvent("completed", handle);
       bumpQueue();
-      void queryClient.invalidateQueries({ queryKey: ["documents", search] });
+      void queryClient.invalidateQueries({ queryKey: ["documents"] });
     });
     const unsubFailed = uploadClient.on("failed", (handle) => {
       recordEvent("failed", handle);
@@ -293,11 +327,18 @@ const AppShell: React.FC = () => {
       unsubFailed();
       unsubProgress();
     };
-  }, [uploadClient, queryClient, search]);
+  }, [uploadClient, queryClient]);
+
+  React.useEffect(() => {
+    if (authUser?.role === "AGENT") {
+      setStatusFilter((current) => (current === "ALL" ? "ACTIVE" : current));
+    }
+  }, [authUser?.role]);
 
   React.useEffect(() => {
     if (!selected) {
       setSelectedPreviewUrl(null);
+      setWatermarkText(null);
       return;
     }
     let active = true;
@@ -305,7 +346,9 @@ const AppShell: React.FC = () => {
     const loadPreview = async () => {
       try {
         const response = await apiFetch(
-          `/documents/${selected.id}/preview-url?watermark=on`
+          `/documents/${selected.id}/preview-url?watermark=${
+            authUser?.role === "AGENT" ? "on" : "off"
+          }`
         );
         if (!response.ok) {
           throw new Error("Failed to fetch preview");
@@ -322,11 +365,19 @@ const AppShell: React.FC = () => {
         }
       }
     };
+    if (authUser?.role === "AGENT") {
+      const timestamp = new Date().toLocaleString("en-US", { hour12: false });
+      setWatermarkText(
+        `For Review - ${authUser.email ?? "agent"} - ${timestamp}`
+      );
+    } else {
+      setWatermarkText(null);
+    }
     void loadPreview();
     return () => {
       active = false;
     };
-  }, [apiFetch, selected]);
+  }, [apiFetch, authUser?.email, authUser?.role, selected]);
 
   React.useEffect(() => {
     if (!selected) {
@@ -339,10 +390,7 @@ const AppShell: React.FC = () => {
     setEditNotes(selected.notes ?? "");
   }, [selected]);
 
-  const handleLogin = async (payload: {
-    email: string;
-    role: "USER" | "AGENT";
-  }) => {
+  const handleLogin = async (payload: { email: string; password: string }) => {
     setAuthError(null);
     const response = await fetch(`${getApiBaseUrl()}/auth/login`, {
       method: "POST",
@@ -350,7 +398,7 @@ const AppShell: React.FC = () => {
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
-      setAuthError("Login failed. Check your email and role.");
+      setAuthError("Login failed. Check your email and password.");
       return;
     }
     const data = (await response.json()) as {
@@ -359,24 +407,34 @@ const AppShell: React.FC = () => {
     };
     authTokenRef.current = data.accessToken;
     await AsyncStorage.setItem(TOKEN_KEY, data.accessToken);
-    setAuthToken(data.accessToken);
-    setAuthUser({
+    const nextUser = {
       email: data.user.email,
       role: data.user.role === "AGENT" ? "AGENT" : "USER",
-    });
+    };
+    setAuthToken(data.accessToken);
+    setAuthUser(nextUser);
+    await AsyncStorage.setItem("league_user", JSON.stringify(nextUser));
   };
 
   const listQuery = useInfiniteQuery({
-    queryKey: ["documents", search],
+    queryKey: ["documents", debouncedSearch, ownerFilter, statusFilter],
     queryFn: async ({ pageParam }) => {
       const params: string[] = [];
       if (pageParam) {
         params.push(`cursor=${encodeURIComponent(String(pageParam))}`);
       }
-      if (search) {
-        params.push(`q=${encodeURIComponent(search)}`);
+      if (debouncedSearch) {
+        params.push(`q=${encodeURIComponent(debouncedSearch)}`);
       }
-      params.push("limit=6");
+      if (authUser?.role === "AGENT" && ownerFilter.trim()) {
+        params.push(`ownerEmail=${encodeURIComponent(ownerFilter.trim())}`);
+      }
+      if (authUser?.role === "AGENT" && statusFilter === "DELETED") {
+        params.push("deleted=only");
+      } else if (statusFilter !== "ALL") {
+        params.push(`status=${encodeURIComponent(statusFilter)}`);
+      }
+      params.push("limit=12");
       const response = await apiFetch(`/documents?${params.join("&")}`);
       if (!response.ok) {
         throw new Error("Failed to fetch documents");
@@ -394,6 +452,11 @@ const AppShell: React.FC = () => {
 
   const handlePickFiles = async () => {
     setUploadError(null);
+    if (!phiConsent) {
+      setPhiConsentError(true);
+      return;
+    }
+    setPhiConsentError(false);
     const result = await DocumentPicker.getDocumentAsync({
       type: ["image/*", "application/pdf"],
       multiple: true,
@@ -464,8 +527,75 @@ const AppShell: React.FC = () => {
   };
 
   const handleStartUploads = async () => {
+    if (!phiConsent) {
+      setPhiConsentError(true);
+      return;
+    }
+    setPhiConsentError(false);
     await uploadClient.startQueued();
     setQueueTick((tick) => tick + 1);
+  };
+
+  const handleDeleteDocument = async (doc: DocumentRef) => {
+    Alert.alert("Delete document", `Delete "${doc.title}"?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          const response = await apiFetch(`/documents/${doc.id}`, {
+            method: "DELETE",
+          });
+          if (!response.ok) {
+            setUploadError("Failed to delete document.");
+            return;
+          }
+          await queryClient.invalidateQueries({
+            queryKey: ["documents"],
+          });
+          if (selected?.id === doc.id) {
+            setSelected({ ...doc, deletedAt: new Date().toISOString() });
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleRestoreDocument = async (doc: DocumentRef) => {
+    const response = await apiFetch(`/documents/${doc.id}/restore`, {
+      method: "POST",
+    });
+    if (!response.ok) {
+      setUploadError("Failed to restore document.");
+      return;
+    }
+    await queryClient.invalidateQueries({
+      queryKey: ["documents"],
+    });
+    if (selected?.id === doc.id) {
+      setSelected({ ...doc, deletedAt: null });
+    }
+  };
+
+  const handleMarkSigned = async (doc: DocumentRef) => {
+    Alert.alert("Mark signed", `Mark "${doc.title}" as signed?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Mark signed",
+        onPress: async () => {
+          const response = await apiFetch(`/documents/${doc.id}/signed`, {
+            method: "POST",
+          });
+          if (!response.ok) {
+            setUploadError("Failed to mark signed.");
+            return;
+          }
+          await queryClient.invalidateQueries({
+            queryKey: ["documents"],
+          });
+        },
+      },
+    ]);
   };
 
   const updateDocument = async (
@@ -499,7 +629,7 @@ const AppShell: React.FC = () => {
           <StatusBar style="dark" />
           <View style={styles.loginCard}>
             <Text style={styles.loginTitle}>Sign in to League Uploads</Text>
-            <Text style={styles.loginSubtitle}>Choose your role to continue.</Text>
+            <Text style={styles.loginSubtitle}>Sign in to continue.</Text>
             <LoginForm onSubmit={handleLogin} error={authError} />
           </View>
         </SafeAreaView>
@@ -534,153 +664,178 @@ const AppShell: React.FC = () => {
             </View>
           </View>
 
-          <View style={styles.card}>
-            <SectionHeader
-              title="Upload documents"
-              subtitle="Pick images or PDFs from your device."
-            />
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Title</Text>
-              <TextInput
-                value={title}
-                onChangeText={setTitle}
-                style={styles.input}
-                placeholder="Document title"
+          {authUser?.role === "USER" ? (
+            <View style={styles.card}>
+              <SectionHeader
+                title="Upload documents"
+                subtitle="Pick images or PDFs from your device."
               />
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Category</Text>
-              <View style={styles.chipRow}>
-                {DocCategory.options.map((option) => (
-                  <Chip
-                    key={option}
-                    selected={option === category}
-                    onPress={() => setCategory(option)}
-                  >
-                    {option}
-                  </Chip>
-                ))}
+              <View style={styles.phiBanner}>
+                <Text style={styles.phiText}>
+                  PHI notice: Uploads may contain protected health information.
+                  Only upload documents you are authorized to share.
+                </Text>
+                {!phiConsent ? (
+                  <View style={styles.row}>
+                    <OutlineButton
+                      onPress={() => {
+                        setPhiConsent(true);
+                        setPhiConsentError(false);
+                      }}
+                    >
+                      I understand and consent
+                    </OutlineButton>
+                    {phiConsentError ? (
+                      <Text style={styles.errorText}>
+                        Consent required before uploading.
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : (
+                  <Text style={styles.queueMetaText}>
+                    Consent recorded for this session.
+                  </Text>
+                )}
               </View>
-            </View>
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Tags (comma-separated)</Text>
-              <TextInput
-                value={tagsInput}
-                onChangeText={setTagsInput}
-                style={styles.input}
-                placeholder="rx, urgent"
-              />
-            </View>
-            <View style={styles.row}>
-              <View style={styles.formGroupHalf}>
-                <Text style={styles.label}>Entity Type</Text>
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Title</Text>
+                <TextInput
+                  value={title}
+                  onChangeText={setTitle}
+                  style={styles.input}
+                  placeholder="Document title"
+                />
+              </View>
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Category</Text>
                 <View style={styles.chipRow}>
-                  {["CLAIM", "PROFILE", "DEPENDENT", "PLAN_YEAR"].map(
-                    (option) => (
-                      <Chip
-                        key={option}
-                        selected={option === entityType}
-                        onPress={() =>
-                          setEntityType(
-                            option as Metadata["entityLinks"][number]["type"]
-                          )
-                        }
-                      >
-                        {option}
-                      </Chip>
-                    )
-                  )}
+                  {DocCategory.options.map((option) => (
+                    <Chip
+                      key={option}
+                      selected={option === category}
+                      onPress={() => setCategory(option)}
+                    >
+                      {option}
+                    </Chip>
+                  ))}
                 </View>
               </View>
-              <View style={styles.formGroupHalf}>
-                <Text style={styles.label}>Entity ID</Text>
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Tags (comma-separated)</Text>
                 <TextInput
-                  value={entityId}
-                  onChangeText={setEntityId}
+                  value={tagsInput}
+                  onChangeText={setTagsInput}
                   style={styles.input}
-                  placeholder="claim_123"
+                  placeholder="rx, urgent"
                 />
               </View>
-            </View>
-            <View style={styles.row}>
-              <View style={styles.formGroupHalf}>
-                <Text style={styles.label}>Document Date</Text>
-                <TextInput
-                  value={docDateInput}
-                  onChangeText={setDocDateInput}
-                  style={styles.input}
-                  placeholder="YYYY-MM-DD"
-                />
+              <View style={styles.row}>
+                <View style={styles.formGroupHalf}>
+                  <Text style={styles.label}>Entity Type</Text>
+                  <View style={styles.chipRow}>
+                    {["CLAIM", "PROFILE", "DEPENDENT", "PLAN_YEAR"].map(
+                      (option) => (
+                        <Chip
+                          key={option}
+                          selected={option === entityType}
+                          onPress={() =>
+                            setEntityType(
+                              option as Metadata["entityLinks"][number]["type"]
+                            )
+                          }
+                        >
+                          {option}
+                        </Chip>
+                      )
+                    )}
+                  </View>
+                </View>
+                <View style={styles.formGroupHalf}>
+                  <Text style={styles.label}>Entity ID</Text>
+                  <TextInput
+                    value={entityId}
+                    onChangeText={setEntityId}
+                    style={styles.input}
+                    placeholder="claim_123"
+                  />
+                </View>
               </View>
-              <View style={styles.formGroupHalf}>
-                <Text style={styles.label}>Notes</Text>
-                <TextInput
-                  value={notes}
-                  onChangeText={setNotes}
-                  style={[styles.input, styles.inputMultiline]}
-                  multiline
-                  placeholder="Member uploaded from mobile."
-                />
+              <View style={styles.row}>
+                <View style={styles.formGroupHalf}>
+                  <Text style={styles.label}>Document Date</Text>
+                  <TextInput
+                    value={docDateInput}
+                    onChangeText={setDocDateInput}
+                    style={styles.input}
+                    placeholder="YYYY-MM-DD"
+                  />
+                </View>
+                <View style={styles.formGroupHalf}>
+                  <Text style={styles.label}>Notes</Text>
+                  <TextInput
+                    value={notes}
+                    onChangeText={setNotes}
+                    style={[styles.input, styles.inputMultiline]}
+                    multiline
+                    placeholder="Member uploaded from mobile."
+                  />
+                </View>
               </View>
-            </View>
-            <View style={styles.row}>
-              <PrimaryButton onPress={handlePickFiles}>Choose files</PrimaryButton>
-              <OutlineButton onPress={handleStartUploads}>
-                Start queued
-              </OutlineButton>
-            </View>
-            {uploadError ? (
-              <Text style={styles.errorText}>{uploadError}</Text>
-            ) : null}
-            <View style={styles.queueMeta}>
-              <Text style={styles.queueMetaText}>
-                Queue: {restoreState.status}
-                {restoreState.status === "restored"
-                  ? ` (${restoreState.count})`
-                  : ""}
-              </Text>
-              <Text style={styles.queueMetaText}>
-                {queueHandles.length
-                  ? `${queueHandles.length} queued`
-                  : "No queued uploads"}
-              </Text>
-            </View>
-            {queueHandles.length ? (
-              <View style={styles.queueList}>
-                {queueHandles.map((handle) => (
-                  <View key={`${handle.id}-${queueTick}`} style={styles.queueItem}>
-                    <View style={styles.queueRow}>
-                      <Text style={styles.queueTitle}>{handle.init.file.name}</Text>
-                      <UploadStatusBadge status={handle.status} />
-                    </View>
-                    <Text style={styles.queueMetaText}>
-                      {formatBytes(handle.progress.bytesSent)} /{" "}
-                      {formatBytes(handle.progress.totalBytes)}
-                    </Text>
-                    {handle.error ? (
-                      <Text style={styles.errorText}>{handle.error}</Text>
-                    ) : null}
-                    <View style={styles.queueActions}>
-                      <OutlineButton onPress={() => handle.pause()}>
-                        Pause
-                      </OutlineButton>
-                      <OutlineButton onPress={() => handle.resume()}>
-                        Resume
-                      </OutlineButton>
-                      <OutlineButton onPress={() => handle.cancel()}>
-                        Cancel
-                      </OutlineButton>
+              <View style={styles.row}>
+                <PrimaryButton onPress={handlePickFiles}>
+                  Choose files
+                </PrimaryButton>
+                <OutlineButton onPress={handleStartUploads}>
+                  Save & upload all
+                </OutlineButton>
+              </View>
+              {uploadError ? (
+                <Text style={styles.errorText}>{uploadError}</Text>
+              ) : null}
+              <View style={styles.queueMeta}>
+                <Text style={styles.queueMetaText}>
+                  {queueHandles.length
+                    ? `${queueHandles.length} queued`
+                    : "No queued uploads"}
+                </Text>
+              </View>
+              {queueHandles.length ? (
+                <View style={styles.queueList}>
+                  {queueHandles.map((handle) => (
+                    <View key={`${handle.id}-${queueTick}`} style={styles.queueItem}>
+                      <View style={styles.queueRow}>
+                        <Text style={styles.queueTitle}>
+                          {handle.init.file.name}
+                        </Text>
+                        <UploadStatusBadge status={handle.status} />
+                      </View>
+                      <Text style={styles.queueMetaText}>
+                        {formatBytes(handle.progress.bytesSent)} /{" "}
+                        {formatBytes(handle.progress.totalBytes)}
+                      </Text>
+                      {handle.error ? (
+                        <Text style={styles.errorText}>{handle.error}</Text>
+                      ) : null}
                       {handle.status === "failed" ? (
-                        <PrimaryButton onPress={() => handle.retry()}>
+                        <PrimaryButton
+                          onPress={async () => {
+                            if (!phiConsent) {
+                              setPhiConsentError(true);
+                              return;
+                            }
+                            handle.retry();
+                            await uploadClient.startQueued();
+                          }}
+                        >
                           Retry
                         </PrimaryButton>
                       ) : null}
                     </View>
-                  </View>
-                ))}
-              </View>
-            ) : null}
-          </View>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+          ) : null}
 
           <View style={styles.card}>
             <SectionHeader
@@ -695,6 +850,40 @@ const AppShell: React.FC = () => {
                 style={styles.input}
                 placeholder="Search documents"
               />
+            </View>
+            {authUser?.role === "AGENT" ? (
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Filter by uploader</Text>
+                <TextInput
+                  value={ownerFilter}
+                  onChangeText={setOwnerFilter}
+                  style={styles.input}
+                  placeholder="user@test.com"
+                  autoCapitalize="none"
+                />
+              </View>
+            ) : null}
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Status</Text>
+              <View style={styles.chipRow}>
+                {(["ALL", "ACTIVE", "SIGNED"] as const).map((option) => (
+                  <Chip
+                    key={`status-${option}`}
+                    selected={statusFilter === option}
+                    onPress={() => setStatusFilter(option)}
+                  >
+                    {option}
+                  </Chip>
+                ))}
+                {authUser?.role === "AGENT" ? (
+                  <Chip
+                    selected={statusFilter === "DELETED"}
+                    onPress={() => setStatusFilter("DELETED")}
+                  >
+                    DELETED
+                  </Chip>
+                ) : null}
+              </View>
             </View>
             {listQuery.isLoading ? (
               <ActivityIndicator color={colors.accent} />
@@ -724,6 +913,12 @@ const AppShell: React.FC = () => {
                         <Text style={styles.docMeta}>
                           {item.categories?.join(", ") ?? "Uncategorized"}
                         </Text>
+                        {authUser?.role === "AGENT" && item.ownerEmail ? (
+                          <Text style={styles.docMeta}>
+                            Uploaded by: {item.ownerEmail}
+                          </Text>
+                        ) : null}
+                        <Text style={styles.docMeta}>Status: {item.status}</Text>
                       </View>
                     </View>
                   </Pressable>
@@ -752,16 +947,35 @@ const AppShell: React.FC = () => {
             {uploadEvents.length ? (
               uploadEvents.map((event) => (
                 <View key={`${event.id}-${event.status}`} style={styles.eventRow}>
-                  <View>
-                    <Text style={styles.eventText}>
-                      {event.id}
-                      {event.name ? ` - ${event.name}` : ""}
-                    </Text>
+                  <View style={styles.eventBody}>
+                    <View style={styles.eventHeader}>
+                      <Text style={styles.eventText}>
+                        {event.id}
+                        {event.name ? ` - ${event.name}` : ""}
+                      </Text>
+                      <UploadStatusBadge status={event.status} />
+                    </View>
+                    {event.progress?.total ? (
+                      <View style={styles.progressTrack}>
+                        <View
+                          style={[
+                            styles.progressFill,
+                            {
+                              width: `${Math.min(
+                                100,
+                                Math.round(
+                                  (event.progress.sent / event.progress.total) * 100
+                                )
+                              )}%`,
+                            },
+                          ]}
+                        />
+                      </View>
+                    ) : null}
                     {event.error ? (
                       <Text style={styles.errorText}>{event.error}</Text>
                     ) : null}
                   </View>
-                  <UploadStatusBadge status={event.status} />
                 </View>
               ))
             ) : (
@@ -781,14 +995,59 @@ const AppShell: React.FC = () => {
                       Close
                     </OutlineButton>
                   </View>
+                  <View style={styles.previewMeta}>
+                    <Text style={styles.previewTitle}>{selected.title}</Text>
+                    <Text style={styles.previewMetaText}>{selected.mimeType}</Text>
+                    <Text style={styles.previewMetaText}>
+                      Status: {selected.status}
+                    </Text>
+                    {selected.deletedAt ? (
+                      <Text style={styles.previewMetaText}>Deleted</Text>
+                    ) : null}
+                    {authUser?.role === "AGENT" && selected.ownerEmail ? (
+                      <Text style={styles.previewMetaText}>
+                        Uploaded by: {selected.ownerEmail}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <View style={styles.row}>
+                    {authUser?.role === "AGENT" &&
+                    selected.status !== "SIGNED" &&
+                    !selected.deletedAt ? (
+                      <PrimaryButton onPress={() => handleMarkSigned(selected)}>
+                        Mark signed
+                      </PrimaryButton>
+                    ) : null}
+                    {authUser?.role === "AGENT" && selected.deletedAt ? (
+                      <OutlineButton onPress={() => handleRestoreDocument(selected)}>
+                        Restore
+                      </OutlineButton>
+                    ) : null}
+                    {authUser?.role === "USER" &&
+                    selected.status !== "SIGNED" &&
+                    !selected.deletedAt ? (
+                      <OutlineButton onPress={() => handleDeleteDocument(selected)}>
+                        Delete
+                      </OutlineButton>
+                    ) : null}
+                  </View>
                   {previewLoading ? (
                     <ActivityIndicator color={colors.accent} />
                   ) : selectedPreviewUrl && selected.mimeType.startsWith("image") ? (
-                    <Image
-                      source={{ uri: selectedPreviewUrl }}
-                      style={styles.previewImage}
-                      resizeMode="cover"
-                    />
+                    <Pressable onPress={() => Linking.openURL(selectedPreviewUrl)}>
+                      <View style={styles.previewImageWrapper}>
+                        <Image
+                          source={{ uri: selectedPreviewUrl }}
+                          style={styles.previewImage}
+                          resizeMode="cover"
+                        />
+                        {authUser?.role === "AGENT" && watermarkText ? (
+                          <View style={styles.watermarkOverlay}>
+                            <Text style={styles.watermarkText}>{watermarkText}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    </Pressable>
                   ) : selectedPreviewUrl && selected.mimeType.includes("pdf") ? (
                     <OutlineButton onPress={() => Linking.openURL(selectedPreviewUrl)}>
                       Open PDF preview
@@ -803,6 +1062,9 @@ const AppShell: React.FC = () => {
                       value={editTitle}
                       onChangeText={setEditTitle}
                       style={styles.input}
+                      editable={
+                        !(authUser?.role === "USER" && selected.status === "SIGNED")
+                      }
                     />
                   </View>
                   <View style={styles.formGroup}>
@@ -812,7 +1074,12 @@ const AppShell: React.FC = () => {
                         <Chip
                           key={`edit-${option}`}
                           selected={option === editCategory}
-                          onPress={() => setEditCategory(option)}
+                          onPress={() =>
+                            authUser?.role === "USER" &&
+                            selected.status === "SIGNED"
+                              ? undefined
+                              : setEditCategory(option)
+                          }
                         >
                           {option}
                         </Chip>
@@ -825,6 +1092,9 @@ const AppShell: React.FC = () => {
                       value={editTagsInput}
                       onChangeText={setEditTagsInput}
                       style={styles.input}
+                      editable={
+                        !(authUser?.role === "USER" && selected.status === "SIGNED")
+                      }
                     />
                   </View>
                   <View style={styles.formGroup}>
@@ -842,6 +1112,9 @@ const AppShell: React.FC = () => {
                         value={editDocDateInput}
                         onChangeText={setEditDocDateInput}
                         style={styles.input}
+                        editable={
+                          !(authUser?.role === "USER" && selected.status === "SIGNED")
+                        }
                       />
                     </View>
                     <View style={styles.formGroupHalf}>
@@ -851,30 +1124,39 @@ const AppShell: React.FC = () => {
                         onChangeText={setEditNotes}
                         style={[styles.input, styles.inputMultiline]}
                         multiline
+                        editable={
+                          !(authUser?.role === "USER" && selected.status === "SIGNED")
+                        }
                       />
                     </View>
                   </View>
-                  <PrimaryButton
-                    onPress={async () => {
-                      if (!selected) {
-                        return;
-                      }
-                      const updated = await updateDocument(selected.id, {
-                        title: editTitle,
-                        categories: [editCategory],
-                        tags: parseTags(editTagsInput),
-                        entityLinks: selected.entityLinks,
-                        docDate: buildDocDate(editDocDateInput),
-                        notes: editNotes || undefined,
-                      });
-                      setSelected(updated);
-                      await queryClient.invalidateQueries({
-                        queryKey: ["documents", search],
-                      });
-                    }}
-                  >
-                    Save changes
-                  </PrimaryButton>
+                  {!(authUser?.role === "USER" && selected.status === "SIGNED") ? (
+                    <PrimaryButton
+                      onPress={async () => {
+                        if (!selected) {
+                          return;
+                        }
+                        const updated = await updateDocument(selected.id, {
+                          title: editTitle,
+                          categories: [editCategory],
+                          tags: parseTags(editTagsInput),
+                          entityLinks: selected.entityLinks,
+                          docDate: buildDocDate(editDocDateInput),
+                          notes: editNotes || undefined,
+                        });
+                        setSelected(updated);
+                        await queryClient.invalidateQueries({
+                          queryKey: ["documents"],
+                        });
+                      }}
+                    >
+                      Save changes
+                    </PrimaryButton>
+                  ) : (
+                    <Text style={styles.emptyText}>
+                      Signed documents cannot be edited.
+                    </Text>
+                  )}
                 </>
               ) : null}
             </View>
@@ -886,11 +1168,11 @@ const AppShell: React.FC = () => {
 };
 
 const LoginForm: React.FC<{
-  onSubmit: (payload: { email: string; role: "USER" | "AGENT" }) => void;
+  onSubmit: (payload: { email: string; password: string }) => void;
   error: string | null;
 }> = ({ onSubmit, error }) => {
-  const [email, setEmail] = React.useState("member@league.test");
-  const [role, setRole] = React.useState<"USER" | "AGENT">("USER");
+  const [email, setEmail] = React.useState("user@test.com");
+  const [password, setPassword] = React.useState("123456");
   return (
     <View style={styles.form}>
       <View style={styles.formGroup}>
@@ -899,24 +1181,23 @@ const LoginForm: React.FC<{
           value={email}
           onChangeText={setEmail}
           style={styles.input}
-          placeholder="member@league.test"
+          placeholder="user@test.com"
           autoCapitalize="none"
           keyboardType="email-address"
         />
       </View>
       <View style={styles.formGroup}>
-        <Text style={styles.label}>Role</Text>
-        <View style={styles.row}>
-          <Chip selected={role === "USER"} onPress={() => setRole("USER")}>
-            User
-          </Chip>
-          <Chip selected={role === "AGENT"} onPress={() => setRole("AGENT")}>
-            Agent
-          </Chip>
-        </View>
+        <Text style={styles.label}>Password</Text>
+        <TextInput
+          value={password}
+          onChangeText={setPassword}
+          style={styles.input}
+          placeholder="123456"
+          secureTextEntry
+        />
       </View>
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
-      <PrimaryButton onPress={() => onSubmit({ email, role })}>
+      <PrimaryButton onPress={() => onSubmit({ email, password })}>
         Sign in
       </PrimaryButton>
     </View>
@@ -1034,6 +1315,19 @@ const styles = StyleSheet.create({
   inputMultiline: {
     minHeight: 60,
     textAlignVertical: "top",
+  },
+  phiBanner: {
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    gap: spacing.xs,
+  },
+  phiText: {
+    fontSize: 12,
+    color: colors.ink,
+    fontFamily: fonts.body,
   },
   row: {
     flexDirection: "row",
@@ -1192,16 +1486,46 @@ const styles = StyleSheet.create({
     color: colors.inkMuted,
     fontFamily: fonts.body,
   },
+  previewMeta: {
+    gap: spacing.xs,
+  },
+  previewTitle: {
+    fontSize: 16,
+    color: colors.ink,
+    fontFamily: fonts.heading,
+  },
+  previewMetaText: {
+    fontSize: 12,
+    color: colors.inkMuted,
+    fontFamily: fonts.body,
+  },
   eventRow: {
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
+  },
+  eventBody: {
+    gap: spacing.xs,
+  },
+  eventHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: spacing.xs,
+    gap: spacing.sm,
   },
   eventText: {
     fontSize: 12,
     color: colors.ink,
     fontFamily: fonts.mono,
+  },
+  progressTrack: {
+    height: 6,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radii.pill,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: colors.accent,
   },
   emptyText: {
     fontSize: 12,
@@ -1241,6 +1565,26 @@ const styles = StyleSheet.create({
     height: 220,
     borderRadius: radii.md,
     backgroundColor: colors.surfaceAlt,
+  },
+  previewImageWrapper: {
+    width: "100%",
+    borderRadius: radii.md,
+    overflow: "hidden",
+  },
+  watermarkOverlay: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.md,
+  },
+  watermarkText: {
+    color: "rgba(95, 63, 33, 0.5)",
+    fontSize: 12,
+    textAlign: "center",
   },
   loginCard: {
     margin: spacing.lg,
