@@ -1,0 +1,129 @@
+// Prisma schema for League Upload Management System
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  MEMBER
+  AGENT
+  ADMIN
+}
+
+enum VersionStatus {
+  PROCESSING
+  CLEAN
+  BLOCKED
+}
+
+enum DocumentStatus {
+  ACTIVE
+  SIGNED
+}
+
+enum LinkType {
+  CLAIM
+  PROFILE
+  DEPENDENT
+  PLAN_YEAR
+}
+
+model User {
+  id         String     @id @default(cuid())
+  role       Role
+  email      String     @unique
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+  Documents  Document[] @relation("OwnerDocs")
+}
+
+model Document {
+  id              String      @id @default(cuid())
+  ownerId         String
+  owner           User        @relation("OwnerDocs", fields: [ownerId], references: [id])
+  latestVersionId String?
+  status          DocumentStatus @default(ACTIVE)
+  signedAt        DateTime?
+  signedById      String?
+  title           String
+  categories      String[]
+  tags            String[]
+  notes           String?
+  docDate         DateTime?
+  sizeBytes       BigInt
+  mimeType        String
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  deletedAt       DateTime?
+  deletedById     String?
+  legalHold       Boolean     @default(false)
+  versions        Version[]
+  entityLinks     EntityLink[]
+  annotations     Json?
+
+  @@index([ownerId])
+  @@index([createdAt])
+}
+
+model Version {
+  id                String        @id @default(cuid())
+  documentId        String
+  document          Document      @relation(fields: [documentId], references: [id])
+  objectKey         String
+  etag              String?
+  sha256            String?
+  status            VersionStatus @default(PROCESSING)
+  multipartUploadId String?
+  createdAt         DateTime      @default(now())
+
+  @@index([documentId])
+}
+
+model EntityLink {
+  id         String   @id @default(cuid())
+  document   Document @relation(fields: [documentId], references: [id])
+  documentId String
+  type       LinkType
+  refId      String
+
+  @@index([type, refId])
+}
+
+model ClaimAssignment {
+  id      String @id @default(cuid())
+  claimId String @unique
+  agentId String
+
+  @@index([agentId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String
+  action    String
+  targetId  String?
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([action])
+}
+
+model IdempotencyKey {
+  id          String   @id @default(cuid())
+  key         String
+  userId      String
+  route       String
+  requestHash String
+  response    Json
+  statusCode  Int
+  createdAt   DateTime @default(now())
+
+  @@unique([key, userId, route])
+  @@index([userId])
+}

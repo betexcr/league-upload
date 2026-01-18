@@ -1,0 +1,15 @@
+{
+  "name": "@league/app-client",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@league/upload-core": "0.1.0"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  }
+}

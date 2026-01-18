@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@league/app-client": ["packages/app-client/src"],
+      "@league/types": ["packages/types/src"],
+      "@league/upload-core": ["packages/upload-core/src"],
+      "@league/upload-ui": ["packages/upload-ui/src"],
+      "@league/doc-viewer": ["packages/doc-viewer/src"],
+      "styled-system/*": ["styled-system/*"]
+    },
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "strict": true,
+    "jsx": "react-jsx",
+    "skipLibCheck": true
+  }
+}

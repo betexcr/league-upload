@@ -1,0 +1,10 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/app-client" },
+    { "path": "packages/types" },
+    { "path": "packages/upload-core" },
+    { "path": "packages/upload-ui" },
+    { "path": "packages/doc-viewer" }
+  ]
+}

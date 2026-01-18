@@ -1,0 +1,49 @@
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[NestFactory] [39m[32mStarting Nest application...[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mClaimsLinkModule dependencies initialized[39m[38;5;3m +67ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mPresignModule dependencies initialized[39m[38;5;3m +2ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mThrottlerModule dependencies initialized[39m[38;5;3m +4ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mStorageModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mProxyModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAdminModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mConfigHostModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mPrismaModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mDiscoveryModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mConfigModule dependencies initialized[39m[38;5;3m +2ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAuthModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAppModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mScheduleModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mScanModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mClaimsModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mUploadsModule dependencies initialized[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mDocumentsModule dependencies initialized[39m[38;5;3m +0ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mHealthController {/v1/health}:[39m[38;5;3m +71ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/health, GET} route[39m[38;5;3m +7ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAuthController {/v1/auth}:[39m[38;5;3m +2ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/auth/login, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/auth/logout, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mLocalStorageController {/v1/local-storage}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/local-storage/multipart/:uploadId/part/:partNumber, PUT} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/local-storage/object, GET} route[39m[38;5;3m +3ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mUploadsController {/v1/uploads}:[39m[38;5;3m +3ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/uploads, POST} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/uploads/:uploadId/complete, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mDocumentsController {/v1/documents}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/documents, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/documents/:id, GET} route[39m[38;5;3m +2ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/documents/:id, PATCH} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/documents/:id/replace, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/documents/:id, DELETE} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/documents/:id/restore, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/documents/:id/annotations, POST} route[39m[38;5;3m +3ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/documents/:id/preview-url, GET} route[39m[38;5;3m +3ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mClaimsController {/v1/claims}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/claims/:claimId/documents, GET} route[39m[38;5;3m +4ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mScanController {/v1/scan}:[39m[38;5;3m +2ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/scan/callback, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mProxyController {/v1/proxy}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/proxy/:id, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAdminController {/v1/admin}:[39m[38;5;3m +1ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/v1/admin/logs, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 2032  - [39m01/18/2026, 12:07:13 AM [32m    LOG[39m [38;5;3m[NestApplication] [39m[32mNest application successfully started[39m[38;5;3m +59ms[39m
+{"level":"info","msg":"request","method":"POST","path":"/v1/auth/login","statusCode":201,"durationMs":78,"correlationId":"b278a595-a50e-4664-b462-02b495ee3ee4"}
+{"level":"info","msg":"request","method":"GET","path":"/v1/documents?limit=5","statusCode":200,"durationMs":2473,"correlationId":"c510b627-d7fd-4849-98ba-ce3d2a3d1ec6","userId":"cmkhi8uhk003u2bipl9nbpg5x"}

@@ -1,0 +1,27 @@
+{
+  "name": "@league/mobile",
+  "private": true,
+  "version": "0.1.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "@league/app-client": "0.1.0",
+    "@league/types": "0.1.0",
+    "@league/upload-core": "0.1.0",
+    "@react-native-async-storage/async-storage": "^1.23.1",
+    "@tanstack/react-query": "^5.43.1",
+    "buffer": "^6.0.3",
+    "expo": "~51.0.12",
+    "expo-document-picker": "~12.0.1",
+    "expo-file-system": "~17.0.1",
+    "expo-linear-gradient": "~13.0.1",
+    "expo-status-bar": "~1.12.1",
+    "react": "18.2.0",
+    "react-native": "0.74.1"
+  }
+}

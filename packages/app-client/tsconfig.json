@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "paths": {
+      "@league/types": ["../types/dist"],
+      "@league/upload-core": ["../upload-core/dist"]
+    }
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    { "path": "../types" },
+    { "path": "../upload-core" }
+  ]
+}
