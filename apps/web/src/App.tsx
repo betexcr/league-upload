@@ -614,9 +614,51 @@ export const App: React.FC = () => {
     [matchesDocumentsQuery, queryClient]
   );
 
+  const findUploadHandle = React.useCallback(
+    (id: string) => uploadClient.listQueue().find((item) => item.id === id),
+    [uploadClient]
+  );
+
   const removeUploadEvent = React.useCallback((id: string) => {
     setUploadEvents((prev) => prev.filter((event) => event.id !== id));
   }, []);
+
+  const pauseUploadEvent = React.useCallback(
+    (id: string) => {
+      const handle = findUploadHandle(id);
+      if (!handle) {
+        return;
+      }
+      handle.pause();
+    },
+    [findUploadHandle]
+  );
+
+  const resumeUploadEvent = React.useCallback(
+    (id: string) => {
+      if (!phiConsent) {
+        setPhiConsentError(true);
+        return;
+      }
+      const handle = findUploadHandle(id);
+      if (!handle) {
+        return;
+      }
+      handle.resume();
+    },
+    [findUploadHandle, phiConsent]
+  );
+
+  const cancelUploadEvent = React.useCallback(
+    (id: string) => {
+      const handle = findUploadHandle(id);
+      if (handle && handle.status !== "completed") {
+        uploadClient.remove(id);
+      }
+      removeUploadEvent(id);
+    },
+    [findUploadHandle, removeUploadEvent, uploadClient]
+  );
 
   const retryUploadEvent = React.useCallback(
     async (id: string) => {
@@ -624,14 +666,14 @@ export const App: React.FC = () => {
         setPhiConsentError(true);
         return;
       }
-      const handle = uploadClient.listQueue().find((item) => item.id === id);
+      const handle = findUploadHandle(id);
       if (!handle) {
         return;
       }
       handle.retry();
       await uploadClient.startQueued();
     },
-    [phiConsent, uploadClient]
+    [findUploadHandle, phiConsent, uploadClient]
   );
 
   const deleteDocument = React.useCallback(
@@ -894,7 +936,8 @@ export const App: React.FC = () => {
     setPreviewLoading(true);
     const loadPreview = async () => {
       try {
-        const watermarkParam = authUser?.role === "AGENT" ? "on" : "off";
+        const watermarkParam =
+          selected.status === "SIGNED" || authUser?.role === "AGENT" ? "on" : "off";
         const response = await apiFetch(
           `/documents/${selected.id}/preview-url?watermark=${watermarkParam}`
         );
@@ -915,7 +958,11 @@ export const App: React.FC = () => {
         }
       }
     };
-    if (authUser?.role === "AGENT") {
+    if (selected.status === "SIGNED") {
+      const signerLabel =
+        authUser?.role === "AGENT" ? authUser.email ?? "agent" : "agent";
+      setWatermarkText(`Signed - ${signerLabel}`);
+    } else if (authUser?.role === "AGENT") {
       const timestamp = new Date().toLocaleString("en-US", { hour12: false });
       setWatermarkText(
         `For Review - ${authUser.email ?? "agent"} - ${timestamp}`
@@ -942,8 +989,9 @@ export const App: React.FC = () => {
       const previews = await Promise.all(
         candidates.map(async (doc) => {
           try {
+            const watermarkParam = doc.status === "SIGNED" ? "on" : "off";
             const response = await apiFetch(
-              `/documents/${doc.id}/preview-url?watermark=off`
+              `/documents/${doc.id}/preview-url?watermark=${watermarkParam}`
             );
             if (!response.ok) {
               return doc;
@@ -1290,6 +1338,28 @@ export const App: React.FC = () => {
           >
             {event.status}
           </span>
+          {event.status === "uploading" ? (
+            <button
+              type="button"
+              className={smallButtonClass}
+              title="Pause upload"
+              aria-label="Pause upload"
+              onClick={() => pauseUploadEvent(event.id)}
+            >
+              ||
+            </button>
+          ) : null}
+          {event.status === "paused" ? (
+            <button
+              type="button"
+              className={smallButtonClass}
+              title="Resume upload"
+              aria-label="Resume upload"
+              onClick={() => resumeUploadEvent(event.id)}
+            >
+              &gt;
+            </button>
+          ) : null}
           {event.status === "failed" ? (
             <button
               type="button"
@@ -1299,16 +1369,15 @@ export const App: React.FC = () => {
               Retry
             </button>
           ) : null}
-          {["failed", "queued", "canceled"].includes(event.status) ? (
+          {event.status !== "completed" ? (
             <button
               type="button"
               className={smallButtonClass}
-              onClick={() => {
-                uploadClient.remove(event.id);
-                removeUploadEvent(event.id);
-              }}
+              title="Delete upload"
+              aria-label="Delete upload"
+              onClick={() => cancelUploadEvent(event.id)}
             >
-              Remove
+              X
             </button>
           ) : null}
         </div>
@@ -1562,26 +1631,6 @@ export const App: React.FC = () => {
                 </button>
               </div>
             </div>
-          {authUser?.role === "USER" ? (
-            <div className={css({ display: "flex", gap: "3", flexWrap: "wrap" })}>
-              <label className={css({ fontSize: "xs", color: "muted" })}>
-                <input
-                  type="checkbox"
-                  checked={failDocuments}
-                  onChange={(event) => setFailDocuments(event.target.checked)}
-                />
-                Simulate document API failure
-              </label>
-              <label className={css({ fontSize: "xs", color: "muted" })}>
-                <input
-                  type="checkbox"
-                  checked={failUploads}
-                  onChange={(event) => setFailUploads(event.target.checked)}
-                />
-                Simulate upload failure
-              </label>
-            </div>
-          ) : null}
           </div>
           <div
             className={css({
@@ -1771,7 +1820,9 @@ export const App: React.FC = () => {
                   ...selected,
                   previewUrl: selectedPreviewUrl ?? undefined,
                 }}
-                showWatermark={authUser?.role === "AGENT"}
+                showWatermark={
+                  authUser?.role === "AGENT" || selected.status === "SIGNED"
+                }
                 watermarkText={watermarkText ?? undefined}
                 showOwner={authUser?.role === "AGENT"}
                 onPreviewClick={(url, mimeType) => openLargePreview(url, mimeType)}
@@ -1869,17 +1920,47 @@ export const App: React.FC = () => {
                   <p>PDF preview unavailable.</p>
                 </object>
               ) : (
-                <img
-                  src={imagePreviewUrl}
-                  alt="Large preview"
+                <div
                   className={css({
-                    display: "block",
-                    maxWidth: "100%",
-                    maxHeight: "80vh",
-                    margin: "0 auto",
-                    borderRadius: "lg",
+                    position: "relative",
+                    display: "grid",
+                    placeItems: "center",
                   })}
-                />
+                >
+                  <img
+                    src={imagePreviewUrl}
+                    alt="Large preview"
+                    className={css({
+                      display: "block",
+                      maxWidth: "100%",
+                      maxHeight: "80vh",
+                      margin: "0 auto",
+                      borderRadius: "lg",
+                    })}
+                  />
+                  {watermarkText ? (
+                    <div
+                      className={css({
+                        position: "absolute",
+                        inset: 0,
+                        display: "grid",
+                        placeItems: "center",
+                        padding: "6",
+                        pointerEvents: "none",
+                      })}
+                    >
+                      <div
+                        className={css({
+                          color: "rgba(95, 63, 33, 0.45)",
+                          fontSize: "sm",
+                          textAlign: "center",
+                        })}
+                      >
+                        {watermarkText}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               )}
             </div>
           </div>

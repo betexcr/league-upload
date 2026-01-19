@@ -13,6 +13,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -49,7 +50,24 @@ if (!globalAny.Buffer) {
 const defaultBaseUrl = "http://localhost:8080/v1";
 const getApiBaseUrl = (): string => {
   const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
-  return envUrl && envUrl.trim().length > 0 ? envUrl : defaultBaseUrl;
+  if (envUrl && envUrl.trim().length > 0) {
+    return envUrl;
+  }
+  if (Platform.OS === "android") {
+    return "http://10.0.2.2:8080/v1";
+  }
+  return defaultBaseUrl;
+};
+
+const normalizePreviewUrl = (url: string): string => {
+  const base = getApiBaseUrl().replace(/\/v1\/?$/, "");
+  if (url.startsWith("http://localhost:8080")) {
+    return url.replace("http://localhost:8080", base);
+  }
+  if (url.startsWith("http://127.0.0.1:8080")) {
+    return url.replace("http://127.0.0.1:8080", base);
+  }
+  return url;
 };
 
 const TOKEN_KEY = "league_token";
@@ -166,7 +184,11 @@ const AppShell: React.FC = () => {
     null
   );
   const [previewLoading, setPreviewLoading] = React.useState(false);
+  const [previewAspectRatio, setPreviewAspectRatio] = React.useState<number | null>(
+    null
+  );
   const [watermarkText, setWatermarkText] = React.useState<string | null>(null);
+  const { height: windowHeight } = useWindowDimensions();
   const [uploadEvents, setUploadEvents] = React.useState<
     Array<{
       id: string;
@@ -204,6 +226,21 @@ const AppShell: React.FC = () => {
   const [editNotes, setEditNotes] = React.useState("");
   const [phiConsent, setPhiConsent] = React.useState(false);
   const [phiConsentError, setPhiConsentError] = React.useState(false);
+  const uploadActivityItems = React.useMemo(() => {
+    if (uploadEvents.length) {
+      return uploadEvents;
+    }
+    return queueHandles.map((handle) => ({
+      id: handle.id,
+      status: handle.status,
+      error: handle.error,
+      name: handle.init.file.name,
+      progress: {
+        sent: handle.progress.bytesSent,
+        total: handle.progress.totalBytes,
+      },
+    }));
+  }, [queueHandles, uploadEvents]);
 
   const handleLogout = React.useCallback(async () => {
     authTokenRef.current = null;
@@ -345,17 +382,17 @@ const AppShell: React.FC = () => {
     setPreviewLoading(true);
     const loadPreview = async () => {
       try {
+        const watermarkParam =
+          selected.status === "SIGNED" || authUser?.role === "AGENT" ? "on" : "off";
         const response = await apiFetch(
-          `/documents/${selected.id}/preview-url?watermark=${
-            authUser?.role === "AGENT" ? "on" : "off"
-          }`
+          `/documents/${selected.id}/preview-url?watermark=${watermarkParam}`
         );
         if (!response.ok) {
           throw new Error("Failed to fetch preview");
         }
         const data = (await response.json()) as { url: string };
         if (active) {
-          setSelectedPreviewUrl(data.url);
+          setSelectedPreviewUrl(normalizePreviewUrl(data.url));
           setPreviewLoading(false);
         }
       } catch {
@@ -365,7 +402,11 @@ const AppShell: React.FC = () => {
         }
       }
     };
-    if (authUser?.role === "AGENT") {
+    if (selected.status === "SIGNED") {
+      const signerLabel =
+        authUser?.role === "AGENT" ? authUser.email ?? "agent" : "agent";
+      setWatermarkText(`Signed - ${signerLabel}`);
+    } else if (authUser?.role === "AGENT") {
       const timestamp = new Date().toLocaleString("en-US", { hour12: false });
       setWatermarkText(
         `For Review - ${authUser.email ?? "agent"} - ${timestamp}`
@@ -389,6 +430,31 @@ const AppShell: React.FC = () => {
     setEditDocDateInput(selected.docDate ? selected.docDate.slice(0, 10) : "");
     setEditNotes(selected.notes ?? "");
   }, [selected]);
+
+  React.useEffect(() => {
+    if (!selectedPreviewUrl || !selected?.mimeType.startsWith("image")) {
+      setPreviewAspectRatio(null);
+      return;
+    }
+    let active = true;
+    Image.getSize(
+      selectedPreviewUrl,
+      (width, height) => {
+        if (!active || width <= 0 || height <= 0) {
+          return;
+        }
+        setPreviewAspectRatio(width / height);
+      },
+      () => {
+        if (active) {
+          setPreviewAspectRatio(null);
+        }
+      }
+    );
+    return () => {
+      active = false;
+    };
+  }, [selectedPreviewUrl, selected?.mimeType]);
 
   const handleLogin = async (payload: { email: string; password: string }) => {
     setAuthError(null);
@@ -535,6 +601,88 @@ const AppShell: React.FC = () => {
     await uploadClient.startQueued();
     setQueueTick((tick) => tick + 1);
   };
+
+  const findUploadHandle = React.useCallback(
+    (id: string) =>
+      uploadClient.listQueue().find((item) => item.id === id) ??
+      queueHandles.find((item) => item.id === id),
+    [queueHandles, uploadClient]
+  );
+
+  const pauseUploadEvent = React.useCallback(
+    (id: string) => {
+      const handle = findUploadHandle(id);
+      if (!handle) {
+        return;
+      }
+      handle.pause();
+      setQueueTick((tick) => tick + 1);
+    },
+    [findUploadHandle]
+  );
+
+  const resumeUploadEvent = React.useCallback(
+    (id: string) => {
+      if (!phiConsent) {
+        setPhiConsentError(true);
+        return;
+      }
+      setPhiConsentError(false);
+      const handle = findUploadHandle(id);
+      if (!handle) {
+        return;
+      }
+      handle.resume();
+      setQueueTick((tick) => tick + 1);
+    },
+    [findUploadHandle, phiConsent]
+  );
+
+  const removeUploadEvent = React.useCallback(
+    (id: string) => {
+      uploadClient.remove(id);
+      setUploadEvents((prev) => prev.filter((event) => event.id !== id));
+      setQueueHandles((prev) => prev.filter((handle) => handle.id !== id));
+    },
+    [uploadClient]
+  );
+
+  const retryUploadEvent = React.useCallback(
+    async (id: string) => {
+      if (!phiConsent) {
+        setPhiConsentError(true);
+        return;
+      }
+      setPhiConsentError(false);
+      const handle =
+        uploadClient.listQueue().find((item) => item.id === id) ??
+        queueHandles.find((item) => item.id === id);
+      if (!handle) {
+        return;
+      }
+      handle.retry();
+      await uploadClient.startQueued();
+      setQueueTick((tick) => tick + 1);
+    },
+    [phiConsent, queueHandles, uploadClient]
+  );
+
+  const retryAllFailed = React.useCallback(async () => {
+    if (!phiConsent) {
+      setPhiConsentError(true);
+      return;
+    }
+    setPhiConsentError(false);
+    const failed = uploadClient
+      .listQueue()
+      .filter((item) => item.status === "failed");
+    if (!failed.length) {
+      return;
+    }
+    failed.forEach((item) => item.retry());
+    await uploadClient.startQueued();
+    setQueueTick((tick) => tick + 1);
+  }, [phiConsent, uploadClient]);
 
   const handleDeleteDocument = async (doc: DocumentRef) => {
     Alert.alert("Delete document", `Delete "${doc.title}"?`, [
@@ -944,40 +1092,95 @@ const AppShell: React.FC = () => {
               title="Upload activity"
               subtitle="Latest queue events."
             />
-            {uploadEvents.length ? (
-              uploadEvents.map((event) => (
-                <View key={`${event.id}-${event.status}`} style={styles.eventRow}>
-                  <View style={styles.eventBody}>
-                    <View style={styles.eventHeader}>
-                      <Text style={styles.eventText}>
-                        {event.id}
-                        {event.name ? ` - ${event.name}` : ""}
-                      </Text>
-                      <UploadStatusBadge status={event.status} />
-                    </View>
-                    {event.progress?.total ? (
-                      <View style={styles.progressTrack}>
-                        <View
-                          style={[
-                            styles.progressFill,
-                            {
-                              width: `${Math.min(
-                                100,
-                                Math.round(
-                                  (event.progress.sent / event.progress.total) * 100
-                                )
-                              )}%`,
-                            },
-                          ]}
-                        />
+            {uploadActivityItems.length ? (
+              <>
+                {uploadActivityItems.map((event) => {
+                  const progressPercent =
+                    event.progress?.total &&
+                    event.progress.total > 0 &&
+                    event.progress.sent >= 0
+                      ? Math.min(
+                          100,
+                          Math.round(
+                            (event.progress.sent / event.progress.total) * 100
+                          )
+                        )
+                      : null;
+                  const showRetry = event.status === "failed";
+                  const showPause = event.status === "uploading";
+                  const showResume = event.status === "paused";
+                  const showRemove = event.status !== "completed";
+                  return (
+                    <View key={event.id} style={styles.eventRow}>
+                      <View style={styles.eventBody}>
+                        <View style={styles.eventHeader}>
+                          <Text style={styles.eventText}>
+                            {event.name ?? event.id}
+                          </Text>
+                          <View style={styles.eventActions}>
+                            <UploadStatusBadge status={event.status} />
+                            {showRetry ? (
+                              <Pressable
+                                onPress={() => retryUploadEvent(event.id)}
+                                accessibilityLabel="Retry upload"
+                                style={styles.eventActionButton}
+                              >
+                                <Text style={styles.eventActionText}>Retry</Text>
+                              </Pressable>
+                            ) : null}
+                            {showPause ? (
+                              <Pressable
+                                onPress={() => pauseUploadEvent(event.id)}
+                                accessibilityLabel="Pause upload"
+                                style={styles.eventActionButton}
+                              >
+                                <Text style={styles.eventActionText}>||</Text>
+                              </Pressable>
+                            ) : null}
+                            {showResume ? (
+                              <Pressable
+                                onPress={() => resumeUploadEvent(event.id)}
+                                accessibilityLabel="Resume upload"
+                                style={styles.eventActionButton}
+                              >
+                                <Text style={styles.eventActionText}>&gt;</Text>
+                              </Pressable>
+                            ) : null}
+                            {showRemove ? (
+                              <Pressable
+                                onPress={() => removeUploadEvent(event.id)}
+                                accessibilityLabel="Remove from queue"
+                                style={styles.eventActionButton}
+                              >
+                                <Text style={styles.eventActionText}>X</Text>
+                              </Pressable>
+                            ) : null}
+                          </View>
+                        </View>
+                        {progressPercent !== null &&
+                        event.status !== "completed" ? (
+                          <View style={styles.progressTrack}>
+                            <View
+                              style={[
+                                styles.progressFill,
+                                { width: `${progressPercent}%` },
+                              ]}
+                            />
+                          </View>
+                        ) : null}
+                        {event.error ? (
+                          <Text style={styles.errorText}>{event.error}</Text>
+                        ) : null}
                       </View>
-                    ) : null}
-                    {event.error ? (
-                      <Text style={styles.errorText}>{event.error}</Text>
-                    ) : null}
-                  </View>
-                </View>
-              ))
+                    </View>
+                  );
+                })}
+                {uploadActivityItems.some((item) => item.status === "failed") ? (
+                  <PrimaryButton onPress={retryAllFailed}>
+                    Retry all failed
+                  </PrimaryButton>
+                ) : null}
+              </>
             ) : (
               <Text style={styles.emptyText}>Upload events appear here.</Text>
             )}
@@ -988,7 +1191,10 @@ const AppShell: React.FC = () => {
           <View style={styles.modalOverlay}>
             <View style={styles.modalCard}>
               {selected ? (
-                <>
+                <ScrollView
+                  showsVerticalScrollIndicator
+                  contentContainerStyle={styles.modalScroll}
+                >
                   <View style={styles.modalHeader}>
                     <Text style={styles.modalTitle}>Preview</Text>
                     <OutlineButton onPress={() => setSelected(null)}>
@@ -1034,20 +1240,37 @@ const AppShell: React.FC = () => {
                   {previewLoading ? (
                     <ActivityIndicator color={colors.accent} />
                   ) : selectedPreviewUrl && selected.mimeType.startsWith("image") ? (
-                    <Pressable onPress={() => Linking.openURL(selectedPreviewUrl)}>
-                      <View style={styles.previewImageWrapper}>
-                        <Image
-                          source={{ uri: selectedPreviewUrl }}
-                          style={styles.previewImage}
-                          resizeMode="cover"
-                        />
-                        {authUser?.role === "AGENT" && watermarkText ? (
-                          <View style={styles.watermarkOverlay}>
-                            <Text style={styles.watermarkText}>{watermarkText}</Text>
-                          </View>
-                        ) : null}
-                      </View>
-                    </Pressable>
+                    <View
+                      style={[
+                        styles.previewImageContainer,
+                        { maxHeight: Math.round(windowHeight * 0.55) },
+                      ]}
+                    >
+                      <ScrollView
+                        style={styles.previewImageScroll}
+                        contentContainerStyle={styles.previewImageContent}
+                        showsVerticalScrollIndicator
+                        nestedScrollEnabled
+                      >
+                        <View style={styles.previewImageWrapper}>
+                          <Image
+                            source={{ uri: selectedPreviewUrl }}
+                            style={[
+                              styles.previewImage,
+                              previewAspectRatio
+                                ? { aspectRatio: previewAspectRatio }
+                                : styles.previewImageFallback,
+                            ]}
+                            resizeMode="contain"
+                          />
+                          {watermarkText ? (
+                            <View style={styles.watermarkOverlay}>
+                              <Text style={styles.watermarkText}>{watermarkText}</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      </ScrollView>
+                    </View>
                   ) : selectedPreviewUrl && selected.mimeType.includes("pdf") ? (
                     <OutlineButton onPress={() => Linking.openURL(selectedPreviewUrl)}>
                       Open PDF preview
@@ -1157,7 +1380,7 @@ const AppShell: React.FC = () => {
                       Signed documents cannot be edited.
                     </Text>
                   )}
-                </>
+                </ScrollView>
               ) : null}
             </View>
           </View>
@@ -1512,6 +1735,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
   },
+  eventActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  eventActionButton: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceAlt,
+  },
+  eventActionText: {
+    fontSize: 11,
+    color: colors.ink,
+    fontFamily: fonts.body,
+  },
   eventText: {
     fontSize: 12,
     color: colors.ink,
@@ -1550,6 +1791,10 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     maxHeight: "90%",
   },
+  modalScroll: {
+    gap: spacing.md,
+    paddingBottom: spacing.lg,
+  },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1560,11 +1805,22 @@ const styles = StyleSheet.create({
     color: colors.ink,
     fontFamily: fonts.heading,
   },
+  previewImageContainer: {
+    width: "100%",
+  },
+  previewImageScroll: {
+    width: "100%",
+  },
+  previewImageContent: {
+    alignItems: "center",
+  },
   previewImage: {
     width: "100%",
-    height: 220,
     borderRadius: radii.md,
     backgroundColor: colors.surfaceAlt,
+  },
+  previewImageFallback: {
+    minHeight: 220,
   },
   previewImageWrapper: {
     width: "100%",
