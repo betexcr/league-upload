@@ -44,7 +44,7 @@ const smallButtonClass = css({
   borderStyle: "solid",
   borderColor: "border",
   borderRadius: "full",
-  padding: "2 6",
+  padding: "3 6",
   background: "highlight",
   fontSize: "xs",
   cursor: "pointer",
@@ -1031,7 +1031,7 @@ export const App: React.FC = () => {
         <div
           className={css({
             width: "100%",
-            maxWidth: "loginWidth",
+            maxWidth: "modalWidth",
             background: "surfaceAlt",
             borderWidth: "thin",
             borderStyle: "solid",
@@ -1216,12 +1216,12 @@ export const App: React.FC = () => {
               <div
                 className={css({
                   display: "grid",
-                  gap: "2",
+                  gap: "3",
                   borderRadius: "lg",
                   borderWidth: "thin",
                   borderStyle: "solid",
                   borderColor: phiConsentError ? "errorBorder" : "border",
-                  padding: "3 4",
+                  padding: "5 6",
                   background: "surfaceAlt",
                 })}
               >
@@ -1769,7 +1769,7 @@ export const App: React.FC = () => {
                     borderWidth: "thin",
                     borderStyle: "solid",
                     borderColor: "border",
-                    padding: "1 5",
+                    padding: "2 4",
                     fontSize: "xs",
                     background: "highlight",
                   })}
@@ -1782,7 +1782,7 @@ export const App: React.FC = () => {
                     borderWidth: "thin",
                     borderStyle: "solid",
                     borderColor: "border",
-                    padding: "1 5",
+                    padding: "2 4",
                     fontSize: "xs",
                     background:
                       selected.status === "SIGNED" ? "successBg" : "highlight",
@@ -2078,7 +2078,7 @@ const LoginForm: React.FC<{
               borderStyle: "solid",
               borderColor: "border",
               borderRadius: "sm",
-              padding: "2 5",
+              padding: "3 4",
               fontSize: "sm",
             })}
             type="email"
@@ -2095,7 +2095,7 @@ const LoginForm: React.FC<{
             borderStyle: "solid",
             borderColor: "border",
             borderRadius: "sm",
-            padding: "2 5",
+            padding: "3 4",
             fontSize: "sm",
           })}
           type="password"
@@ -2116,7 +2116,7 @@ const LoginForm: React.FC<{
           borderWidth: "thin",
           borderStyle: "solid",
           borderColor: "border",
-          padding: "2 5",
+          padding: "3 5",
           background: "accent",
           color: "surface",
           fontSize: "sm",

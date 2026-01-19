@@ -160,7 +160,9 @@ const Chip: React.FC<
       selected ? styles.chipSelected : styles.chipUnselected,
     ]}
   >
-    <Text style={styles.chipText}>{children}</Text>
+    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+      {children}
+    </Text>
   </Pressable>
 );
 
@@ -1588,6 +1590,9 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.ink,
     fontFamily: fonts.body,
+  },
+  chipTextSelected: {
+    color: "white",
   },
   primaryButton: {
     backgroundColor: colors.accent,

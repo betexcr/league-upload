@@ -338,7 +338,7 @@ export const UploaderWidget: React.FC<UploaderWidgetProps> = ({
             <span
               className={css({
                 borderRadius: "full",
-                padding: "2 4",
+                padding: "3 5",
                 borderWidth: "thin",
                 borderStyle: "solid",
                 borderColor: "border",
@@ -349,11 +349,11 @@ export const UploaderWidget: React.FC<UploaderWidgetProps> = ({
             <span
               className={css({
                 borderRadius: "full",
-                padding: "2 4",
+                padding: "3 5",
                 borderWidth: "thin",
                 borderStyle: "solid",
                 borderColor: "border",
-              })}
+              })}  
             >
               JPG/PNG
             </span>
@@ -378,7 +378,7 @@ export const UploaderWidget: React.FC<UploaderWidgetProps> = ({
               borderWidth: "thin",
               borderStyle: "solid",
               borderColor: "border",
-              padding: "2 6",
+              padding: "3 6",
               background: "accent",
               color: "surface",
               fontSize: "xs",
@@ -444,7 +444,7 @@ export const UploaderWidget: React.FC<UploaderWidgetProps> = ({
                 borderWidth: "thin",
                 borderStyle: "solid",
                 borderColor: "border",
-                padding: "2 4",
+                padding: "3 5",
                 fontSize: "xs",
                 background: "highlight",
               })}
@@ -658,7 +658,7 @@ const buttonClass = css({
   borderStyle: "solid",
   borderColor: "border",
   borderRadius: "full",
-  padding: "2 6",
+  padding: "3 6",
   background: "accent",
   color: "surface",
   fontSize: "xs",
@@ -846,10 +846,10 @@ export const DocumentGallery: React.FC<DocumentGalleryProps> = ({
             borderStyle: "solid",
             borderColor: "border",
             borderRadius: "lg",
-            padding: "4",
+            padding: "5",
             bg: "surfaceAlt",
             display: "grid",
-            gap: "2",
+            gap: "3",
             gridTemplateColumns: isGrid ? "1fr" : "var(--sizes-thumb) 1fr",
             alignItems: "start",
             cursor: onOpen ? "pointer" : "default",
@@ -906,7 +906,7 @@ export const DocumentGallery: React.FC<DocumentGalleryProps> = ({
                   borderWidth: "thin",
                   borderStyle: "solid",
                   borderColor: "border",
-                  padding: "2 4",
+                  padding: "3 5",
                   fontSize: "xs",
                   background: doc.deletedAt
                     ? "warningBg"
@@ -952,7 +952,7 @@ export const DocumentGallery: React.FC<DocumentGalleryProps> = ({
                 Notes: {doc.notes}
               </p>
             ) : null}
-            <div className={css({ display: "flex", gap: "2", flexWrap: "wrap" })}>
+            <div className={css({ display: "flex", gap: "3", flexWrap: "wrap" })}>
               <button
                 className={buttonClass}
                 type="button"
