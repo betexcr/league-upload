@@ -1369,7 +1369,7 @@ export const App: React.FC = () => {
               Retry
             </button>
           ) : null}
-          {event.status !== "completed" ? (
+          {event.status ? (
             <button
               type="button"
               className={smallButtonClass}

@@ -1050,11 +1050,19 @@ const AppShell: React.FC = () => {
                     ]}
                   >
                     <View style={styles.docRow}>
-                      <View style={styles.docPreview}>
+                    <View style={styles.docPreview}>
+                      {item.mimeType.startsWith("image/") && item.previewUrl ? (
+                        <Image
+                          source={{ uri: item.previewUrl }}
+                          style={styles.docPreviewImage}
+                          resizeMode="cover"
+                        />
+                      ) : (
                         <Text style={styles.docPreviewText}>
-                          {item.mimeType.includes("pdf") ? "PDF" : "IMG"}
+                          {item.mimeType.includes("pdf") ? "PDF" : "DOC"}
                         </Text>
-                      </View>
+                      )}
+                    </View>
                       <View style={styles.docBody}>
                         <Text style={styles.docTitle}>{item.title}</Text>
                         <Text style={styles.docMeta}>{item.mimeType}</Text>
@@ -1109,7 +1117,7 @@ const AppShell: React.FC = () => {
                   const showRetry = event.status === "failed";
                   const showPause = event.status === "uploading";
                   const showResume = event.status === "paused";
-                  const showRemove = event.status !== "completed";
+                  const showRemove = true;
                   return (
                     <View key={event.id} style={styles.eventRow}>
                       <View style={styles.eventBody}>
@@ -1694,6 +1702,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.accent,
     fontFamily: fonts.body,
+  },
+  docPreviewImage: {
+    width: "100%",
+    height: "100%",
   },
   docBody: {
     flex: 1,

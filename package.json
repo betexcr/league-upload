@@ -6,6 +6,7 @@
     "packages/*"
   ],
   "scripts": {
+    "dev:all": "node scripts/dev-all.js",
     "build": "tsc -b",
     "clean": "tsc -b --clean",
     "typecheck": "tsc -b --pretty false",

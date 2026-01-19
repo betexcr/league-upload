@@ -1062,8 +1062,24 @@
     height: 90vh;
 }
 
+  .pos_relative {
+    position: relative;
+}
+
   .max-w_100\% {
     max-width: 100%;
+}
+
+  .pointer-events_none {
+    pointer-events: none;
+}
+
+  .text_rgba\(95\,_63\,_33\,_0\.45\) {
+    color: rgba(95, 63, 33, 0.45);
+}
+
+  .text-align_center {
+    text-align: center;
 }
 
   .z_1000 {
@@ -1138,10 +1154,6 @@
     cursor: default;
 }
 
-  .pointer-events_none {
-    pointer-events: none;
-}
-
   .bg_warningBg {
     background: warningBg;
 }
@@ -1178,10 +1190,6 @@
     width: 60%;
 }
 
-  .pos_relative {
-    position: relative;
-}
-
   .cursor_zoom-in {
     cursor: zoom-in;
 }
@@ -1192,10 +1200,6 @@
 
   .transform_rotate\(-18deg\) {
     transform: rotate(-18deg);
-}
-
-  .text-align_center {
-    text-align: center;
 }
 
   .border-w_thin {
